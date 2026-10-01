@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>KBT Cost</title>
+<meta name="description" content="Tra cứu định mức và food cost nguyên liệu Khrua Baan Thai">
+<meta name="theme-color" content="#00945A">
+<meta name="robots" content="noindex,nofollow">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" type="image/png" sizes="64x64" href="icons/favicon-64.png">
+<link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="KBT Cost">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Be+Vietnam+Pro:wght@400;500;600;700&display=swap">
+<link rel="stylesheet" href="app.css?v=1.5.0">
+</head>
+<body class="locked">
+<div id="login" hidden>
+  <div class="lg">
+    <div class="mark"><img src="icons/logo-login.png" alt="Khrua Baan Thai" width="222" height="206" class="lglogo"><small>Định mức &amp; cost nguyên liệu</small></div>
+    <form id="lgForm" autocomplete="on">
+      <label for="lgUser">Tên đăng nhập</label>
+      <input id="lgUser" name="username" autocomplete="username" autocapitalize="none" spellcheck="false" required placeholder="vd: van.doan">
+      <label for="lgPass">Mật khẩu</label>
+      <div class="pw"><input id="lgPass" name="password" type="password" autocomplete="current-password" required><button type="button" class="btn" id="lgShow">Hiện</button></div>
+      <button class="big" id="lgBtn" type="submit">Đăng nhập</button>
+    </form>
+    <div class="err" id="lgMsg" hidden></div>
+    <div class="foot">Tài liệu nội bộ – tài sản công ty. Quên mật khẩu, liên hệ quản trị.</div>
+  </div>
+</div>
+<div class="app" id="appRoot" hidden>
+  <nav class="side" id="nav" aria-label="Phân hệ">
+    <div class="brand"><img src="icons/logo-login.png" alt="Khrua Baan Thai" class="brandlogo"><span>Định mức &amp; cost nguyên liệu</span></div>
+    <div class="mtop"><img src="icons/icon-192.png" alt="" class="mlogo"><b>KBT COST</b><span id="whoM"></span><button type="button" class="btn edit-toggle etm" hidden aria-label="Sửa dữ liệu">✎ Sửa</button><div class="zoom" aria-label="Cỡ chữ"><button type="button" data-z="-1" aria-label="Thu nhỏ chữ">A−</button><button type="button" data-z="1" aria-label="Phóng to chữ">A+</button></div></div>
+    <div class="secbar" id="secBar" role="tablist" aria-label="Khu vực"></div>
+    <div id="navList"></div>
+    <div class="navfoot"><b id="who"></b><span id="sync"></span><button type="button" class="btn edit-toggle" hidden style="margin-top:8px">✎ Sửa dữ liệu</button><div class="zoom" aria-label="Cỡ chữ"><span>Cỡ chữ</span><button type="button" data-z="-1" aria-label="Thu nhỏ chữ">A−</button><button type="button" data-z="0" aria-label="Cỡ chữ mặc định">100%</button><button type="button" data-z="1" aria-label="Phóng to chữ">A+</button></div></div>
+  </nav>
+  <main id="main"></main>
+</div>
+<div id="editbar" hidden></div>
+<div id="toast" hidden></div>
+<script src="config.js?v=1.5.0"></script>
+<script src="vendor/supabase.js"></script>
+<script src="parser.js?v=1.5.0"></script>
+<script src="app.js?v=1.5.0"></script>
+</body>
+</html>
