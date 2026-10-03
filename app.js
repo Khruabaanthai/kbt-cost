@@ -16,7 +16,7 @@ const PLACE='<span class="todo">Bếp chưa cập nhật</span>';
 
 
 /* ================= KBT Cost – lõi ứng dụng: đăng nhập, dữ liệu, điều hướng ================= */
-const APP_VERSION = '1.5.0';
+const APP_VERSION = '1.6.0';
 const USER_DOMAIN = (window.KBT_CONFIG && window.KBT_CONFIG.USER_DOMAIN) || 'kbt.app';
 
 /* ---------- dữ liệu & chỉ mục (được gán sau khi tải) ---------- */
@@ -73,12 +73,13 @@ function makeBackend() {
       const g = k => data.find(r => r.key === k);
       const main = g('data'), bar = g('bar'), sot = g('sot');
       const cfg = g('cfg'), cus = Object.fromEntries(data.filter(r => r.key.startsWith('cus:')).map(r => [r.key.slice(4), r.payload]));
-      if (!main && !bar && !sot && !cfg) return null;
+      const s2 = data.filter(r => r.key.startsWith('s2')).map(r => ({ key: r.key, payload: r.payload, updated_at: r.updated_at }));
+      if (!main && !bar && !sot && !cfg && !s2.length) return null;
       const m = r => r ? { ...(r.meta || {}), updated_at: r.updated_at } : null;
       return {
         data: main?.payload || null, meta: m(main), bar: bar?.payload || null, barMeta: m(bar), sot: sot?.payload || null, sotMeta: m(sot),
         images: data.filter(r => r.key.startsWith('img:')).map(r => [r.key.slice(4), r.payload.src]),
-        cfg: cfg?.payload || null, cus,
+        cfg: cfg?.payload || null, cus, s2,
         stamp: data.filter(r => !r.key.startsWith('img:')).map(r => r.key + ':' + r.updated_at).sort().join('|'),
       };
     },
@@ -142,9 +143,10 @@ function applyAll(all) {
   META = all.meta; BAR = all.bar || null; SOT = all.sot || null; BARMETA = all.barMeta || null; SOTMETA = all.sotMeta || null;
   if (all.data) setData(all.data, all.images); else D = null;
   CFG = cfgNorm(all.cfg); CUS = all.cus || {};
+  if (typeof s2Apply === 'function') s2Apply(all.s2 || []);
   if (typeof prepBarSot === 'function') prepBarSot();
 }
-const hasAny = () => !!(D || BAR || SOT || CFG.custom.length);
+const hasAny = () => !!(D || BAR || SOT || CFG.custom.length || (typeof s2AnyData === 'function' && s2AnyData()));
 async function loadData(force) {
   if (typeof EDIT !== 'undefined' && EDIT.on) return;
   const c = await cache.get('dataset');
@@ -166,7 +168,8 @@ async function loadData(force) {
 function fmtTime(t) { try { return new Date(t).toLocaleString('vi-VN', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit', year: 'numeric' }); } catch (e) { return t; } }
 function setSync(msg) {
   const el = $('#sync'); if (!el) return;
-  el.innerHTML = msg ? esc(msg) : META ? `Dữ liệu: ${esc(META.file || 'file định mức')}<br>Cập nhật ${esc(fmtTime(META.updated_at))}${META.by ? ' · ' + esc(META.by) : ''}` : '';
+  const s2l = typeof s2Latest === 'function' ? s2Latest() : null;
+  el.innerHTML = msg ? esc(msg) : s2l ? `Cập nhật gần nhất: ${esc(s2l.name)}<br>${esc(fmtTime(s2l.at))}${s2l.by ? ' · ' + esc(s2l.by) : ''}` : META ? `Dữ liệu: ${esc(META.file || 'file định mức')}<br>Cập nhật ${esc(fmtTime(META.updated_at))}${META.by ? ' · ' + esc(META.by) : ''}` : '';
 }
 
 /* ---------- khung app & điều hướng ---------- */
@@ -176,7 +179,8 @@ function isAdmin() { return ME.role === 'admin'; }
 const SECS = [{ id: 'bep', name: 'Bếp' }, { id: 'bar', name: 'Bar' }, { id: 'sot', name: 'Bếp tổng' }, { id: 'khac', name: 'Khác' }];
 function buildMods() {
   MODS = [];
-  if (D) MODS.push(
+  if (s2Has('bep')) { MODS.push(...s2Mods('bep')); if (D?.charts?.length) MODS.push({ id: 'chart', sec: 'bep', name: 'Chart món', n: D.charts.length }); if (D?.sops?.length) MODS.push({ id: 'daotao', sec: 'bep', name: 'Đào tạo SOP', n: D.sops.length }); }
+  else if (D) MODS.push(
     { id: 'tongquan', sec: 'bep', name: 'Tổng quan' },
     { id: 'menu', sec: 'bep', name: 'Menu tổng hợp', n: D.menu.length },
     { id: 'cost', sec: 'bep', name: 'Food cost', n: D.dishes.length },
@@ -186,7 +190,8 @@ function buildMods() {
     { id: 'tracuu', sec: 'bep', name: 'Tra cứu NVL' },
     { id: 'chart', sec: 'bep', name: 'Chart món', n: D.charts.length },
     { id: 'daotao', sec: 'bep', name: 'Đào tạo SOP', n: D.sops.length });
-  if (BAR) {
+  if (s2Has('bar')) { MODS.push(...s2Mods('bar')); if (BAR?.charts?.length) MODS.push({ id: 'bar-chart', sec: 'bar', name: 'Chart pha chế', n: BAR.charts.length }); if (BAR?.sops?.length) MODS.push({ id: 'bar-sop', sec: 'bar', name: 'Đào tạo SOP', n: BAR.sops.length }); }
+  else if (BAR) {
     MODS.push({ id: 'bar-tq', sec: 'bar', name: 'Tổng quan' },
       { id: 'bar-menu', sec: 'bar', name: 'Menu & cost', n: BAR.menu.filter(m => !m.off).length },
       { id: 'bar-ct', sec: 'bar', name: 'Công thức pha chế', n: BAR.recipes.length },
@@ -194,7 +199,8 @@ function buildMods() {
     if (BAR.charts?.length) MODS.push({ id: 'bar-chart', sec: 'bar', name: 'Chart pha chế', n: BAR.charts.length });
     if (BAR.sops?.length) MODS.push({ id: 'bar-sop', sec: 'bar', name: 'Đào tạo SOP', n: BAR.sops.length });
   }
-  if (SOT) MODS.push({ id: 'sot-tq', sec: 'sot', name: 'Tổng quan' },
+  if (s2Has('sot')) MODS.push(...s2Mods('sot'));
+  else if (SOT) MODS.push({ id: 'sot-tq', sec: 'sot', name: 'Tổng quan' },
     { id: 'sot-gia', sec: 'sot', name: 'Bảng giá xuống cơ sở', n: SOT.prices.length },
     { id: 'sot-ct', sec: 'sot', name: 'Công thức sốt', n: SOT.recipes.length },
     { id: 'sot-nvl', sec: 'sot', name: 'Danh mục NVL', n: SOT.nvl.length });
@@ -229,7 +235,7 @@ function renderShell() {
   $('#who').textContent = $('#whoM').textContent = ME.name || ME.email.replace('@' + USER_DOMAIN, '');
   setSync(); if (typeof drawEditBar === 'function') drawEditBar();
   const h = (location.hash || '').slice(1);
-  const want = MODS.find(m => m.id === h) ? h : (MODS.find(m => m.id === st.mod) ? st.mod : store.get('mod', 'tongquan'));
+  const want = MODS.find(m => m.id === h) ? h : (MODS.find(m => m.id === st.mod) ? st.mod : store.get('mod', 'n-bep-tq'));
   if (!MODS.length) return;
   go(MODS.find(m => m.id === want) ? want : MODS[0].id);
 }
@@ -243,7 +249,7 @@ function renderEmpty(msg) {
   else $('#main').innerHTML = `<div class="empty-state"><h1>Chưa có dữ liệu</h1><p>Quản trị chưa tải file định mức lên. Khi có dữ liệu, app sẽ tự hiện các phân hệ tra cứu.</p><button class="btn" onclick="loadData(true)">Kiểm tra lại</button></div>`;
 }
 function go(mod, sel) {
-  if (!VIEWS[mod] && String(mod).startsWith('cus-')) VIEWS[mod] = () => viewCus(mod.slice(4));
+  if (!VIEWS[mod]) { const f = dynView(String(mod)); if (f) VIEWS[mod] = f; }
   if (!VIEWS[mod] || !MODS.find(m => m.id === mod)) return;
   st.mod = mod; if (sel !== undefined) st.sel[mod] = sel;
   const sc = secOf(mod); if (sc && sc !== 'sys') { st.sec = sc; store.set('last_' + sc, mod); }
@@ -266,7 +272,7 @@ function syncNav(id) { if (st.mod === id) return; st.mod = id; const sc = secOf(
 
 document.addEventListener('click',e=>{const j=e.target.closest('[data-go]');if(j){e.stopPropagation();go(j.dataset.go,j.dataset.sel)}});
 const jumpBtns=code=>`<div class="jump">
- <button class="btn" data-go="cost" data-sel="${code}">Cost</button>
+ <button class="btn" data-go="${(typeof s2Loc==='function'&&s2Loc('bep',code)||{mod:'cost'}).mod}" data-sel="${code}">Cost</button>
  <button class="btn" data-go="chart" data-sel="${code}" ${chartBy[code]?'':'disabled'}>Chart</button>
  <button class="btn" data-go="daotao" data-sel="${code}" ${sopBy[code]?'':'disabled'}>Đào tạo</button></div>`;
 const head=(t,p,extra='')=>`<div class="head"><div class="grow"><h1>${t}</h1>${p?`<p>${p}</p>`:''}</div>${extra}</div>`;
@@ -624,7 +630,7 @@ VIEWS.bar = function () {
     afterRender.barct(); bindTabs(); return;
   }
   const barJump = code => { const r = barIdx.byCode[code]; const c = BAR.charts?.find(x => x.code === code); const s = BAR.sops?.find(x => x.code === code);
-    return `<div class="jump">${r ? `<button class="btn" data-bj="ct" data-bc="${r.id}">Cost</button>` : ''}${c ? `<button class="btn" data-bj="chart" data-bc="${esc(code)}">Chart</button>` : ''}${s ? `<button class="btn" data-bj="sop" data-bc="${esc(code)}">Đào tạo</button>` : ''}</div>`; };
+    const L2 = typeof s2Loc === 'function' && s2Loc('bar', code); return `<div class="jump">${L2 ? `<button class="btn" data-go="${L2.mod}" data-sel="${esc(L2.sel)}">Cost</button>` : r ? `<button class="btn" data-bj="ct" data-bc="${r.id}">Cost</button>` : ''}${c ? `<button class="btn" data-bj="chart" data-bc="${esc(code)}">Chart</button>` : ''}${s ? `<button class="btn" data-bj="sop" data-bc="${esc(code)}">Đào tạo</button>` : ''}</div>`; };
   const bindJump = () => document.querySelectorAll('[data-bj]').forEach(b => b.onclick = () => { const k = b.dataset.bj; st.barTab = k; st.sel[k === 'ct' ? 'barct' : k === 'chart' ? 'barch' : 'barsop'] = b.dataset.bc; VIEWS.bar(); });
   const kv = a => `<dl class="kv">${a.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${v ? esc(v) : PLACE.replace('Bếp', 'Bar')}</dd>`).join('')}</dl>`;
   const TODO = PLACE.replace('Bếp', 'Bar');
@@ -927,7 +933,7 @@ function rec(area, what, code, name, field, oldv, newv, ctx = '') {
   const ex = EDIT.changes.find(c => c.k === k);
   if (ex) { ex.new = newv; if (ex.new === ex.old) EDIT.changes.splice(EDIT.changes.indexOf(ex), 1); }
   else if (oldv !== newv) EDIT.changes.push({ k, area, what, code, name, field, old: oldv, new: newv, ctx });
-  EDIT.dirty[area] = EDIT.changes.some(c => c.area === area);
+  EDIT.dirty[area] = EDIT.changes.some(c => c.area === area && !c.s2);
   drawEditBar();
 }
 function recalc(area) {
@@ -937,14 +943,16 @@ function recalc(area) {
 }
 function startEdit() {
   if (!canEdit()) return;
-  EDIT.snap = { D: D ? structuredClone(D) : null, BAR: BAR ? structuredClone(BAR) : null, SOT: SOT ? structuredClone(SOT) : null };
+  EDIT.snap = { D: D ? structuredClone(D) : null, BAR: BAR ? structuredClone(BAR) : null, SOT: SOT ? structuredClone(SOT) : null, S2: s2Snap() };
+  EDIT.s2keys = new Set();
   if (D) KBTEngine.prepBep(D); if (BAR) KBTEngine.prepBar(BAR); if (SOT) KBTEngine.prepSot(SOT);
   EDIT.on = true; EDIT.changes = []; EDIT.dirty = { bep: false, bar: false, sot: false };
   document.body.classList.add('editing'); drawEditBar(); VIEWS[st.mod]?.();
   toast('Đã bật chế độ sửa. Sửa xong bấm Lưu ở thanh dưới cùng.');
 }
 function stopEdit(discard) {
-  if (discard && EDIT.snap) { D = EDIT.snap.D; BAR = EDIT.snap.BAR; SOT = EDIT.snap.SOT; if (D) setData(D); prepBarSot(); }
+  if (discard && EDIT.snap) { D = EDIT.snap.D; BAR = EDIT.snap.BAR; SOT = EDIT.snap.SOT; if (D) setData(D); prepBarSot(); if (EDIT.snap.S2) s2Restore(EDIT.snap.S2); }
+  EDIT.s2keys = new Set();
   EDIT.on = false; EDIT.snap = null; EDIT.changes = []; EDIT.dirty = { bep: false, bar: false, sot: false };
   document.body.classList.remove('editing'); drawEditBar(); renderShell();
 }
@@ -954,14 +962,15 @@ function drawEditBar() {
   if (!EDIT.on) { el.hidden = true; return; }
   el.hidden = false;
   const n = EDIT.changes.length;
-  el.innerHTML = `<div class="eb-in"><div class="eb-t"><b>Chế độ sửa</b><span>${n ? `${n} thay đổi chưa lưu` : 'Chưa có thay đổi. Sửa ở: Danh mục NVL, Food cost, Bán thành phẩm, Menu, Công thức pha chế, Bảng giá sốt…'}</span></div>
+  el.innerHTML = `<div class="eb-in"><div class="eb-t"><b>Chế độ sửa</b><span>${n ? `${n} thay đổi chưa lưu` : 'Chưa có thay đổi. Mở nhóm món / BTP / combo, Menu hoặc Danh mục NVL để sửa.'}</span></div>
     <div class="eb-b">${n ? '<button class="btn" id="ebList">Xem</button>' : ''}<button class="btn" id="ebCancel">${n ? 'Hủy thay đổi' : 'Thoát'}</button><button class="btn pri" id="ebSave" ${n ? '' : 'disabled'}>Lưu &amp; đăng</button></div></div>`;
   $('#ebCancel').onclick = () => { if (!n || confirm('Bỏ ' + n + ' thay đổi chưa lưu?')) stopEdit(true); };
   $('#ebSave').onclick = saveEdit;
   if (n) $('#ebList').onclick = showChanges;
 }
 const AREA_NAME = { bep: 'Bếp', bar: 'Bar', sot: 'Bếp tổng' };
-const FIELD_NAME = { offst: 'Trạng thái', price: 'Giá nhập', base: 'Đơn giá gốc', tl: 'TL đạt', sell: 'Giá bán', qty: 'Định lượng', add: 'Thêm NVL', del: 'Xóa NVL', menuPrice: 'Giá bán', sellCs: 'Giá bán xuống CS', yld: 'Sản lượng', name: 'Tên', unit: 'ĐVT', cat: 'Danh mục', newnvl: 'Thêm NVL mới', delnvl: 'Xóa NVL', newitem: 'Thêm mới', delitem: 'Xóa' };
+const FIELD_EXTRA = { addDish: 'Thêm món', delDish: 'Bỏ món', upload: 'Tải file', delgroup: 'Xóa nhóm', yUnit: 'ĐVT thành phẩm', ngan: 'Số ngăn', inc: 'Tính cost', offst: 'Trạng thái' };
+const FIELD_NAME = { ...FIELD_EXTRA, offst: 'Trạng thái', price: 'Giá nhập', base: 'Đơn giá gốc', tl: 'TL đạt', sell: 'Giá bán', qty: 'Định lượng', add: 'Thêm NVL', del: 'Xóa NVL', menuPrice: 'Giá bán', sellCs: 'Giá bán xuống CS', yld: 'Sản lượng', name: 'Tên', unit: 'ĐVT', cat: 'Danh mục', newnvl: 'Thêm NVL mới', delnvl: 'Xóa NVL', newitem: 'Thêm mới', delitem: 'Xóa' };
 const fmtChange = c => typeof c.old === 'string' || typeof c.new === 'string' ? (c.old ?? '—') + ' → ' + (c.new ?? '—') : c.field === 'newitem' ? 'tạo mới' : c.field === 'delitem' ? 'đã xóa' : c.field === 'tl' ? pct(c.old) + ' → ' + pct(c.new) : (c.field === 'add' ? '+ ' + q(c.new) : c.field === 'del' ? 'xóa (' + q(c.old) + ')' : (c.old == null ? '—' : q(c.old)) + ' → ' + (c.new == null ? '—' : q(c.new)));
 function showChanges() {
   $('#main').innerHTML = head('Thay đổi chưa lưu', 'Kiểm tra lại trước khi bấm Lưu & đăng.') + `<section class="panel"><div class="tbl"><table><thead><tr><th>Khu</th><th>Mã</th><th>Tên</th><th>Nội dung</th><th>Thay đổi</th></tr></thead><tbody>${EDIT.changes.map(c => `<tr><td>${AREA_NAME[c.area]}</td><td class="code">${esc(c.code || '')}</td><td>${esc(c.name || '')}${c.ctx ? `<div class="note" style="margin:0">${esc(c.ctx)}</div>` : ''}</td><td>${esc(FIELD_NAME[c.field] || c.field)}</td><td>${esc(fmtChange(c))}</td></tr>`).join('')}</tbody></table></div></section>`;
@@ -982,9 +991,10 @@ async function saveEdit() {
       m.edited_at = now; m.edited_by = by; m.edits = (m.edits || 0) + EDIT.changes.filter(c => c.area === a).length;
       await API.publishExtra(key, d, m);
     }
+    await s2SaveKeys(now, by);
     try { await API.appendLog(EDIT.changes.map(c => ({ at: now, by, area: c.area, code: c.code, name: c.name, field: c.field, old: c.old, new: c.new, ctx: c.ctx }))); } catch (e) { }
     const n = EDIT.changes.length;
-    EDIT.on = false; EDIT.snap = null; EDIT.changes = []; EDIT.dirty = { bep: false, bar: false, sot: false }; document.body.classList.remove('editing'); drawEditBar();
+    EDIT.on = false; EDIT.snap = null; EDIT.changes = []; EDIT.s2keys = new Set(); EDIT.dirty = { bep: false, bar: false, sot: false }; document.body.classList.remove('editing'); drawEditBar();
     await loadData(true);
     toast(`Đã lưu ${n} thay đổi. Mọi người sẽ thấy số mới khi mở app.`);
   } catch (e) { b.disabled = false; b.textContent = 'Lưu & đăng'; toast('Chưa lưu được: ' + e.message); }
@@ -1682,3 +1692,685 @@ applyZoom();
   if (s) afterLogin(s, false); else showLogin();
   window.addEventListener('online', () => { if (D) loadData(false); });
 })();
+
+/* ================= DỮ LIỆU MẪU 2026: Bếp / Bar / Bếp tổng → các nhóm con (mỗi nhóm = 1 file) ================= */
+const SECN = { bep: 'Bếp', bar: 'Bar', sot: 'Bếp tổng' };
+const KINDN = { dish: 'Món', btp: 'Bán thành phẩm', combo: 'Combo' };
+const S2 = { bep: { cat: null, groups: [] }, bar: { cat: null, groups: [] }, sot: { cat: null, groups: [] } };
+const S2META = {};
+const s2Has = sec => !!(S2[sec] && (S2[sec].groups.length || S2[sec].cat?.items?.length));
+const s2AnyData = () => ['bep', 'bar', 'sot'].some(s2Has);
+const KIND_ORDER = { btp: 0, combo: 1, dish: 2 };
+
+function s2Apply(rows) {
+  ['bep', 'bar', 'sot'].forEach(s => { S2[s] = { cat: null, groups: [] }; });
+  for (const k in S2META) delete S2META[k];
+  (rows || []).forEach(r => {
+    S2META[r.key] = r.updated_at;
+    if (r.key.startsWith('s2cat:')) { const s = r.key.slice(6); if (S2[s]) S2[s].cat = r.payload; }
+    else if (r.key.startsWith('s2g:') && r.payload && S2[r.payload.sec]) S2[r.payload.sec].groups.push(r.payload);
+  });
+  ['bep', 'bar', 'sot'].forEach(s => S2[s].groups.sort((a, b) => (KIND_ORDER[a.kind] - KIND_ORDER[b.kind]) || String(a.created || '').localeCompare(String(b.created || ''))));
+  s2ComputeAll();
+}
+function s2Compute(sec) {
+  const X = S2[sec]; if (!X) return;
+  X.cat ??= { items: [] };
+  KBTEngine2.compute({ cat: X.cat, groups: X.groups });
+  const byCode = {}, used = {}, cat = {};
+  X.cat.items.forEach(n => { cat[n.code] = n; });
+  X.groups.forEach(g => (g.items || []).forEach(r => {
+    if (g.kind === 'combo') { [...r.fixed, ...r.groups.flatMap(x => x.items)].forEach(it => (used[it.code] ??= []).push({ g, r, l: it, combo: true })); return; }
+    if (r.code && (!byCode[r.code] || (g.kind === 'dish' && byCode[r.code].g.kind !== 'dish'))) byCode[r.code] = { g, r };
+    r.lines.forEach(l => { if (l.code) (used[l.code] ??= []).push({ g, r, l }); });
+  }));
+  X.idx = { byCode, used, cat };
+}
+function s2ComputeAll() { ['bep', 'bar', 'sot'].forEach(s2Compute); }
+function s2Loc(sec, code) { const x = S2[sec]?.idx?.byCode[code]; return x ? { mod: 'g-' + x.g.id, sel: x.r.code } : null; }
+function s2Latest() { let b = null; ['bep', 'bar', 'sot'].forEach(s => S2[s].groups.forEach(g => { const t = g.edited_at || g.at; if (t && (!b || t > b.at)) b = { at: t, by: g.edited_by || g.by, name: SECN[s] + ' · ' + g.name }; })); return b; }
+const s2Group = id => { for (const s of ['bep', 'bar', 'sot']) { const g = S2[s].groups.find(x => x.id === id); if (g) return g; } return null; };
+const s2Clean = o => JSON.parse(JSON.stringify(o, (k, v) => (k === '_g' || k === 'idx') ? undefined : v));
+const unitOf = (sec, l) => l.div === 1 ? lowU(S2[sec].idx?.cat[l.code]?.unit || l.unit || 'cái').replace(/^qua$/, 'quả') : 'g/ml';
+const lowU = u => String(u || '').toLowerCase();
+
+/* ---------- menu điều hướng ---------- */
+function s2Mods(sec) {
+  const X = S2[sec], dishes = X.groups.filter(g => g.kind !== 'btp').reduce((a, g) => a + g.items.length, 0);
+  const out = [{ id: `n-${sec}-tq`, sec, name: 'Tổng quan' }];
+  if (sec === 'sot') out.push({ id: 'n-sot-menu', sec, name: 'Bảng giá xuống cơ sở', n: X.groups.filter(g => g.kind === 'btp').reduce((a, g) => a + g.items.filter(r => r.sell).length, 0) });
+  else out.push({ id: `n-${sec}-menu`, sec, name: 'Menu ' + SECN[sec].toLowerCase(), n: dishes });
+  X.groups.forEach(g => out.push({ id: 'g-' + g.id, sec, name: g.name, n: g.items.length }));
+  out.push({ id: `n-${sec}-cat`, sec, name: 'Danh mục NVL ' + SECN[sec].toLowerCase(), n: X.cat?.items?.length || 0 }, { id: `n-${sec}-find`, sec, name: 'Tra cứu NVL' });
+  return out;
+}
+function dynView(mod) {
+  if (mod.startsWith('cus-')) return () => viewCus(mod.slice(4));
+  if (mod.startsWith('g-')) return () => viewGroup(mod.slice(2));
+  const m = mod.match(/^n-(bep|bar|sot)-(tq|menu|cat|find)$/);
+  if (m) return () => ({ tq: viewS2Tq, menu: m[1] === 'sot' ? viewSotMenu : viewS2Menu, cat: viewS2Cat, find: viewS2Find })[m[2]](m[1]);
+  return null;
+}
+
+/* ---------- TỔNG QUAN ---------- */
+function viewS2Tq(sec) {
+  const X = S2[sec];
+  const dg = X.groups.filter(g => g.kind === 'dish'), bg = X.groups.filter(g => g.kind === 'btp'), cg = X.groups.filter(g => g.kind === 'combo');
+  const all = dg.flatMap(g => g.items.filter(r => !r.off).map(r => ({ r, g })));
+  const priced = all.filter(x => x.r.price && x.r.total != null);
+  const w = priced.reduce((a, x) => a + x.r.total, 0) / (priced.reduce((a, x) => a + x.r.price, 0) || 1);
+  const over = priced.filter(x => x.r.total / x.r.price > TARGET);
+  const miss = []; X.groups.forEach(g => g.kind !== 'combo' && g.items.forEach(r => r.lines.forEach(l => { if (l.miss || (l.code && !l.price && l.inc !== false && !/^1_0|nuoc loc|da vien/i.test(norm(l.name) + ' ' + l.code))) miss.push({ g, r, l }); })));
+  const byG = [...dg, ...cg].map(g => { const p = g.items.filter(r => r.price && r.total != null && !r.off); return { g, n: g.items.length, r: p.length ? p.reduce((a, r) => a + r.total, 0) / p.reduce((a, r) => a + r.price, 0) : null }; });
+  const maxR = Math.max(TARGET, ...byG.map(x => x.r || 0)) * 1.1;
+  const top = [...priced].sort((a, b) => b.r.total / b.r.price - a.r.total / a.r.price).slice(0, 10);
+  const sotRows = sec === 'sot' ? bg.flatMap(g => g.items.filter(r => r.sell)) : [];
+  $('#main').innerHTML = head('Tổng quan ' + SECN[sec].toLowerCase(), `Số liệu tính trực tiếp từ các nhóm đã tải lên. Tỷ lệ cost = cost ÷ giá bán, tô màu theo mục tiêu ${pct(TARGET)}.`,
+    `<label class="muted" for="tg">Mục tiêu food cost&nbsp;</label><input type="number" id="tg" min="10" max="80" step="1" value="${Math.round(TARGET * 100)}" style="width:80px"> <span class="muted">%</span>`) +
+    `<div class="kpis">
+      <div class="kpi"><div class="l">Nhóm dữ liệu</div><div class="v">${X.groups.length}</div><div class="s">${dg.length} nhóm món · ${bg.length} nhóm BTP${cg.length ? ' · ' + cg.length + ' combo' : ''}</div></div>
+      ${sec === 'sot' ? `<div class="kpi"><div class="l">Sốt / BTP có công thức</div><div class="v">${bg.reduce((a, g) => a + g.items.length, 0)}</div><div class="s">${sotRows.length} sốt có giá bán xuống cơ sở</div></div>
+      <div class="kpi"><div class="l">Giá thành / giá bán TB</div><div class="v">${sotRows.length ? pct(sotRows.reduce((a, r) => a + r.per, 0) / sotRows.reduce((a, r) => a + r.sell, 0)) : '—'}</div><div class="s">gia quyền theo giá bán / kg</div></div>`
+      : `<div class="kpi"><div class="l">Món đang bán</div><div class="v">${all.length}</div><div class="s">${all.length - priced.length} món chưa có giá bán</div></div>
+      <div class="kpi"><div class="l">Food cost bình quân</div><div class="v">${priced.length ? pct(w) : '—'}</div><div class="s">gia quyền theo giá bán</div></div>
+      <div class="kpi"><div class="l">Món vượt mục tiêu</div><div class="v" style="color:var(--bad)">${over.length}</div><div class="s">trên ${priced.length} món có giá bán</div></div>`}
+      <div class="kpi"><div class="l">Danh mục NVL</div><div class="v">${X.cat?.items?.length || 0}</div><div class="s">${miss.length ? `<span style="color:var(--bad)">${miss.length} dòng thiếu giá / thiếu mã</span>` : 'Không có dòng thiếu giá'}</div></div>
+    </div>
+    <div class="grid2">
+      <section class="panel"><h3>${sec === 'sot' ? 'Các nhóm' : 'Tỷ lệ cost theo nhóm'}</h3><div class="pad">${sec === 'sot' || !byG.length ? `<div class="tbl"><table><thead><tr><th>Nhóm</th><th>Loại</th><th class="n">Số mục</th><th>File</th></tr></thead><tbody>${X.groups.map(g => `<tr class="click" data-go="g-${g.id}"><td>${esc(g.name)}</td><td>${KINDN[g.kind]}</td><td class="n">${g.items.length}</td><td class="muted">${esc(g.file || '')}</td></tr>`).join('')}</tbody></table></div>`
+        : `<div class="bars">${byG.map(x => { const cl = x.r == null ? '' : x.r <= TARGET ? '' : x.r <= TARGET + .1 ? 'w' : 'b'; return `<div class="bar click" data-go="g-${x.g.id}" style="cursor:pointer"><span class="lb" title="${esc(x.g.name)}">${esc(x.g.name)} <span class="muted">(${x.n})</span></span><span class="t"><i class="${cl}" style="width:${(x.r || 0) / maxR * 100}%"></i><span class="tg" style="left:${TARGET / maxR * 100}%"></span></span><span class="n" style="text-align:right;font-variant-numeric:tabular-nums">${pct(x.r)}</span></div>`; }).join('')}</div><div class="note">Vạch đậm = mục tiêu ${pct(TARGET)}. Bấm vào nhóm để mở.</div>`}</div></section>
+      <section class="panel"><h3>${sec === 'sot' ? 'Sốt có tỷ lệ giá thành cao nhất' : '10 món tỷ lệ cost cao nhất'}</h3>${sec === 'sot'
+        ? `<div class="tbl"><table><thead><tr><th>Sốt</th><th class="n">Giá thành/kg</th><th class="n">Giá bán</th><th class="n">%</th></tr></thead><tbody>${[...sotRows].sort((a, b) => b.per / b.sell - a.per / a.sell).slice(0, 10).map(r => `<tr class="click" data-go="g-${r._g}" data-sel="${esc(r.code)}"><td>${esc(r.name)} <span class="muted">${esc(r.code)}</span></td><td class="n">${vnd(r.per)}</td><td class="n">${vnd(r.sell)}</td><td class="n">${pct(r.per / r.sell)}</td></tr>`).join('')}</tbody></table></div>`
+        : `<div class="tbl"><table><thead><tr><th>Món</th><th>Nhóm</th><th class="n">Giá bán</th><th class="n">Cost</th><th class="n">%</th></tr></thead><tbody>${top.map(x => `<tr class="click" data-go="g-${x.g.id}" data-sel="${esc(x.r.code)}"><td>${esc(x.r.name)} <span class="muted">${esc(x.r.code)}</span></td><td class="muted">${esc(x.g.name)}</td><td class="n">${vnd(x.r.price)}</td><td class="n">${vnd(x.r.total)}</td><td class="n">${pillFor(x.r.total / x.r.price)}</td></tr>`).join('') || '<tr><td colspan="5" class="empty">Chưa có món nào có giá bán.</td></tr>'}</tbody></table></div>`}</section>
+    </div>
+    ${miss.length ? `<section class="panel" style="margin-top:16px"><h3>Dòng nguyên liệu thiếu giá hoặc không có trong danh mục (${miss.length})</h3><div class="tbl"><table><thead><tr><th>Nhóm</th><th>Công thức</th><th>Mã NVL</th><th>Tên</th><th>Vấn đề</th></tr></thead><tbody>${miss.slice(0, 60).map(x => `<tr class="click" data-go="g-${x.g.id}" data-sel="${esc(x.r.code)}"><td class="muted">${esc(x.g.name)}</td><td>${esc(x.r.name)}</td><td class="code">${esc(x.l.code || '—')}</td><td>${esc(x.l.name)}</td><td>${x.l.miss ? '<span class="pill warn">Không có trong danh mục</span>' : '<span class="pill bad">Giá 0</span>'}</td></tr>`).join('')}</tbody></table></div></section>` : ''}`;
+  $('#tg').onchange = e => { const v = +e.target.value; if (v > 0 && v < 100) { TARGET = v / 100; store.set('target', TARGET); viewS2Tq(sec); } };
+}
+
+/* ---------- MENU (bếp / bar) ---------- */
+function viewS2Menu(sec) {
+  const X = S2[sec], f = (st.s2mF ??= {})[sec] ??= { q: '', g: '', off: false };
+  const rows = X.groups.filter(g => g.kind !== 'btp').flatMap(g => g.items.map(r => ({ r, g, code: r.code, name: r.name, cat: r.cat || '', gname: g.name, price: r.price, cost: r.total, ratio: r.price && r.total != null ? r.total / r.price : null, off: r.off })));
+  const ed = EDIT.on && canEdit();
+  $('#main').innerHTML = head('Menu ' + SECN[sec].toLowerCase(), `${rows.length} món${X.groups.some(g => g.kind === 'combo') ? ' và combo' : ''} từ ${X.groups.filter(g => g.kind !== 'btp').length} nhóm. Bấm vào món để xem công thức.${ed ? ' Đang ở chế độ sửa: sửa giá bán ngay trong bảng.' : ''}`) +
+    `<div class="toolbar">${searchInput('smq', 'Tìm mã hoặc tên món…', f.q)}<label class="muted" style="white-space:nowrap"><input type="checkbox" id="smoff" ${f.off ? 'checked' : ''}> Hiện cả món đã bỏ / thành phần</label></div>
+    <div class="chips" id="smc" style="margin-bottom:12px"><button class="chip" data-c="" aria-pressed="${!f.g}">Tất cả</button>${X.groups.filter(g => g.kind !== 'btp').map(g => `<button class="chip" data-c="${g.id}" aria-pressed="${f.g === g.id}">${esc(g.name)}</button>`).join('')}</div>
+    <section class="panel" id="smt"></section><div class="note" id="sms"></div>`;
+  const draw = () => {
+    const qq = norm(f.q);
+    const rs = rows.filter(x => (!f.g || x.g.id === f.g) && (f.off || (!x.off && x.price !== 0)) && (!qq || norm(x.code + ' ' + x.name).includes(qq)));
+    const tp = rs.filter(x => x.price && x.cost != null);
+    $('#sms').textContent = `${rs.length} món · cost gia quyền ${tp.length ? pct(tp.reduce((a, x) => a + x.cost, 0) / tp.reduce((a, x) => a + x.price, 0)) : '—'}`;
+    sortable($('#smt'), rs, [
+      { h: 'Mã', v: x => x.code, cls: 'code' }, { h: 'Tên món', v: x => x.name, f: x => esc(x.name) + (x.off ? ' <span class="pill mute">Đã bỏ</span>' : '') + (x.r.opts || x.g.kind === 'combo' ? ' <span class="pill mute">PA cao nhất</span>' : '') },
+      { h: 'Nhóm', v: x => x.gname, f: x => `<span class="muted">${esc(x.gname)}${x.cat && norm(x.cat) !== norm(x.gname) ? ' · ' + esc(x.cat) : ''}</span>` },
+      { h: 'Giá bán', n: 1, v: x => x.price, f: x => ed ? inp(fmtIn(x.price), `data-pr="${esc(x.g.id)}|${esc(x.code)}"`, 110) : vnd(x.price) },
+      { h: 'Cost', n: 1, v: x => x.cost, f: x => vnd(x.cost) }, { h: 'Tỷ lệ', n: 1, v: x => x.ratio, f: x => `<span data-rt>${x.price ? pillFor(x.ratio) : '—'}</span>` },
+    ], x => { if (!ed) go('g-' + x.g.id, x.code); });
+    if (ed) bindInputs($('#smt'), i => {
+      const [gid, code] = i.dataset.pr.split('|'), g = s2Group(gid), r = g.items.find(y => y.code === code);
+      const v = parseNum(i.value); if (v != null && (isNaN(v) || v < 0)) return false;
+      const o = r.price; r.price = v; s2Compute(sec); s2rec(sec, 's2g:' + gid, code, r.name, 'sell', o, v, g.name);
+      const t = i.closest('tr').querySelector('[data-rt]'); if (t) { t.innerHTML = v ? pillFor(r.total / v) : '—'; flash(t); }
+    });
+  };
+  $('#smq').oninput = e => { f.q = e.target.value; draw(); };
+  $('#smoff').onchange = e => { f.off = e.target.checked; draw(); };
+  $('#smc').onclick = e => { const b = e.target.closest('[data-c]'); if (!b) return; f.g = b.dataset.c; $('#smc').querySelectorAll('.chip').forEach(c => c.setAttribute('aria-pressed', c === b)); draw(); };
+  draw();
+}
+
+/* ---------- BẢNG GIÁ XUỐNG CƠ SỞ (bếp tổng) ---------- */
+function viewSotMenu() {
+  const X = S2.sot, ed = EDIT.on && canEdit(), bepCat = S2.bep.idx?.cat || {};
+  const f = st.s2sF ??= { q: '', all: false };
+  const rows = X.groups.filter(g => g.kind === 'btp').flatMap(g => g.items.map(r => ({ r, g, code: r.code, name: r.name, per: r.per, sell: r.sell, ratio: r.sell && r.per != null ? r.per / r.sell : null, gp: r.sell && r.per != null ? r.sell - r.per : null, cur: bepCat[r.code]?.price ?? null })));
+  const diff = rows.filter(x => x.sell && x.cur != null && Math.abs(x.cur - x.sell) >= 1);
+  $('#main').innerHTML = head('Bảng giá xuống cơ sở', 'Giá thành = giá vốn sản xuất tại bếp tổng (tự tính). Giá bán xuống cơ sở = giá vốn tại cơ sở. Cột cuối so với giá đang dùng trong Danh mục NVL bếp.', ed && diff.length ? `<button class="btn pri" id="applycs">Áp ${diff.length} giá mới vào Danh mục bếp</button>` : '') +
+    `<div class="toolbar">${searchInput('ssq', 'Tìm mã hoặc tên sốt…', f.q)}<label class="muted" style="white-space:nowrap"><input type="checkbox" id="ssall" ${f.all ? 'checked' : ''}> Hiện cả sốt dùng nội bộ (chưa có giá bán)</label></div><section class="panel" id="sst"></section><div class="note">${diff.length ? `${diff.length} sốt có giá bán khác giá đang dùng ở Danh mục bếp → cost các món dùng sốt đó ở cơ sở sẽ đổi khi áp giá mới.${ed ? '' : ' Bật chế độ sửa để áp giá.'}` : 'Giá bán xuống cơ sở khớp với Danh mục bếp.'}</div>`;
+  const draw = () => {
+    const qq = norm(f.q);
+    const rs = rows.filter(x => (f.all || x.sell) && (!qq || norm(x.code + ' ' + x.name).includes(qq)));
+    sortable($('#sst'), rs, [
+      { h: 'Mã', v: x => x.code, cls: 'code' }, { h: 'Tên sốt', v: x => x.name },
+      { h: 'Giá thành/kg', n: 1, v: x => x.per, f: x => vnd(x.per) },
+      { h: 'Giá bán xuống CS', n: 1, v: x => x.sell, f: x => ed ? inp(fmtIn(x.sell), `data-sl="${esc(x.g.id)}|${esc(x.code)}"`, 110) : vnd(x.sell) },
+      { h: '% giá thành', n: 1, v: x => x.ratio, f: x => `<span data-rt>${pct(x.ratio)}</span>` }, { h: 'Lãi gộp/kg', n: 1, v: x => x.gp, f: x => vnd(x.gp) },
+      { h: 'Giá ở DM bếp', n: 1, v: x => x.cur, f: x => x.cur == null ? '<span class="muted">—</span>' : (x.sell && Math.abs(x.cur - x.sell) >= 1 ? `<span class="pill warn" title="Chênh ${vnd(x.sell - x.cur)}">${vnd(x.cur)}</span>` : vnd(x.cur)) },
+    ], x => { if (!ed) go('g-' + x.g.id, x.code); });
+    if (ed) bindInputs($('#sst'), i => {
+      const [gid, code] = i.dataset.sl.split('|'), g = s2Group(gid), r = g.items.find(y => y.code === code);
+      const v = parseNum(i.value); if (v != null && (isNaN(v) || v < 0)) return false;
+      const o = r.sell; r.sell = v; s2Compute('sot'); s2rec('sot', 's2g:' + gid, code, r.name, 'sellCs', o, v, g.name);
+      const t = i.closest('tr').querySelector('[data-rt]'); if (t) { t.textContent = pct(r.ratio); flash(t); }
+    });
+  };
+  $('#ssq').oninput = e => { f.q = e.target.value; draw(); };
+  $('#ssall').onchange = e => { f.all = e.target.checked; draw(); };
+  if ($('#applycs')) $('#applycs').onclick = () => {
+    if (!confirm(`Áp giá bán xuống cơ sở của ${diff.length} sốt vào Danh mục NVL bếp? Cost các món bếp dùng sốt này sẽ tính lại.`)) return;
+    diff.forEach(x => { const n = bepCat[x.code]; const o = n.price; n.price = x.sell; s2rec('bep', 's2cat:bep', x.code, n.name, 'price', o, x.sell, 'Áp giá từ Bếp tổng'); });
+    s2Compute('bep'); viewSotMenu(); toast('Đã áp giá mới vào Danh mục bếp. Bấm Lưu & đăng để lưu.');
+  };
+  draw();
+}
+
+/* ---------- NHÓM: món / BTP / combo ---------- */
+function viewGroup(id) {
+  const g = s2Group(id); if (!g) return go(MODS[0].id);
+  const sec = g.sec, X = S2[sec], ed = EDIT.on && canEdit();
+  const key = 'g-' + id;
+  const kindTxt = g.kind === 'dish' ? `${g.items.length} món` : g.kind === 'btp' ? `${g.items.length} công thức` : `${g.items.length} combo`;
+  const desc = `${SECN[sec]} · ${KINDN[g.kind]} · ${kindTxt}${g.file ? ' · File: ' + esc(g.file) : ''}${g.at ? ' · ' + esc(fmtTime(g.at)) : ''}${g.by ? ' · ' + esc(g.by) : ''}`;
+  const acts = `<button class="btn" id="gexp">Tải Excel</button>${isAdmin() && !ed ? `<button class="btn" id="gup">Cập nhật file</button>` : ''}${g.notes?.rows?.length ? `<button class="btn" id="gnotes">Điểm đã xác nhận (${g.notes.rows.length})</button>` : ''}`;
+  const top = head(esc(MODS.find(m => m.id === 'g-' + id)?.name || g.name), desc + (ed ? ' · <b>Đang sửa</b>' : ''), acts);
+  const items = g.items.map(r => ({ id: r.code, code: g.kind === 'combo' ? '' : r.code, name: r.name, cat: r.cat || '', _r: r, badge: badgeOf(g, r) }));
+  const cats = [...new Set(items.map(i => i.cat).filter(Boolean))];
+  const render = it => { if (!it) return '<div class="empty">Chưa có mục nào.</div>'; const r = it._r; return ed ? s2EditView(g, r) : g.kind === 'combo' ? comboView(g, r) : recipeView(g, r); };
+  if (!items.length) $('#main').innerHTML = top + '<section class="panel" id="ld-d"><div class="empty">Nhóm chưa có mục nào.</div></section>';
+  else listDetail({ top }, '', items, key, render, cats.length > 1 ? cats : null);
+  afterRender[key] = () => { if (ed) s2BindEdit(g, items.find(i => i.id === st.sel[key])?._r); };
+  afterRender[key]();
+  if (ed) { $('#main .head').insertAdjacentHTML('beforeend', `<button class="btn pri" id="gnew">+ Thêm ${g.kind === 'combo' ? 'combo' : g.kind === 'btp' ? 'công thức' : 'món'}</button>`); $('#gnew').onclick = () => s2NewItem(g); }
+  $('#gexp').onclick = () => exportGroup(g);
+  if ($('#gup')) $('#gup').onclick = () => { st.up = { sec, target: g.id }; go('capnhat'); };
+  if ($('#gnotes')) $('#gnotes').onclick = () => {
+    const ex = $('#gnotesp'); if (ex) { ex.remove(); return; }
+    $('#main').insertAdjacentHTML('beforeend', `<section class="panel" id="gnotesp" style="margin-top:16px"><h3>Các điểm đã xác nhận (từ file)</h3><div class="tbl"><table><thead><tr>${g.notes.head.map(h => `<th>${esc(h)}</th>`).join('')}</tr></thead><tbody>${g.notes.rows.map(r => `<tr>${r.map(v => `<td>${esc(v)}</td>`).join('')}</tr>`).join('')}</tbody></table></div></section>`);
+    $('#gnotesp').scrollIntoView({ behavior: 'smooth' });
+  };
+}
+function badgeOf(g, r) {
+  if (g.kind === 'btp') return r.sell ? `<span class="pill ${r.ratio > .6 ? 'warn' : 'good'}">${pct(r.ratio)}</span>` : `<span class="muted" style="font-size:12px;white-space:nowrap">${vnd(r.per)}</span>`;
+  if (r.off) return '<span class="pill mute">Đã bỏ</span>';
+  return r.price ? pillFor(r.total / r.price) : (r.price === 0 ? '<span class="pill mute">0đ</span>' : '');
+}
+const shareBar = (a, t) => t ? `<span class="share" style="width:${Math.max(2, (a || 0) / t * 60)}px"></span>${pct((a || 0) / t)}` : '—';
+function lineRow(sec, l, total, showInc) {
+  const loc = l.code && s2Loc(sec, l.code);
+  const go2 = loc ? `data-go="${loc.mod}" data-sel="${esc(loc.sel)}"` : (l.code ? `data-go="n-${sec}-find" data-sel="${esc(l.code)}"` : '');
+  return `<tr class="${go2 ? 'click' : ''}" ${go2}><td class="code hm">${esc(l.code || '—')}</td><td>${esc(l.name)}${l.miss ? ' <span class="pill warn">Không có trong danh mục</span>' : ''}${l.note ? `<div class="note" style="margin:0">${esc(l.note)}</div>` : ''}<div class="note sm-only" style="margin:0">${esc(l.code || '')}${l.tl < 1 ? ' · TL ' + pct(l.tl) : ''} · ${vnd(l.price)}</div></td>
+    <td class="n">${q(l.qty)} <span class="muted">${esc(unitOf(sec, l))}</span></td><td class="n hm">${pct(l.tl)}</td><td class="n hm">${l.price ? vnd(l.price) : '<span class="pill bad">0</span>'}</td>${showInc ? `<td class="hm">${l.inc === false ? '<span class="pill mute">Không tính</span>' : ''}</td>` : ''}<td class="n">${vnd(l.amount)}</td><td class="n hm">${l.inc === false ? '' : shareBar(l.amount, total)}</td></tr>`;
+}
+function linesTable(sec, r, total) {
+  const showInc = r.lines.some(l => l.inc === false);
+  return `<div class="tbl"><table><thead><tr><th class="hm">Mã NVL</th><th>Tên nguyên liệu</th><th class="n">Định lượng</th><th class="n hm">TL đạt</th><th class="n hm">Giá nhập</th>${showInc ? '<th class="hm">Tính</th>' : ''}<th class="n">Thành tiền</th><th class="n hm">Tỷ trọng</th></tr></thead><tbody>
+    ${r.lines.map(l => lineRow(sec, l, total, showInc)).join('')}</tbody><tfoot><tr><td class="hm"></td><td>Tổng${r.opts ? ' phần cố định' : ''}</td><td class="n">${r.totQty != null ? q(r.totQty) : ''}</td><td class="hm"></td><td class="hm"></td>${showInc ? '<td class="hm"></td>' : ''}<td class="n">${vnd(r.opts ? r.fixed : r.total)}</td><td class="hm"></td></tr></tfoot></table></div>
+    <div class="note">Thành tiền = Định lượng ÷ TL đạt × Giá nhập ÷ ĐVĐL${r.noTl ? ' (công thức BTP này không chia TL đạt, đúng như file)' : ''}. Giá nhập và TL đạt lấy từ Danh mục NVL ${SECN[sec].toLowerCase()}. Bấm vào dòng để xem nguyên liệu / BTP.</div>`;
+}
+function chartJump(sec, code) {
+  if (sec === 'bep' && typeof chartBy !== 'undefined' && D) return `<div class="jump">${chartBy?.[code] ? `<button class="btn" data-go="chart" data-sel="${esc(code)}">Chart</button>` : ''}${sopBy?.[code] ? `<button class="btn" data-go="daotao" data-sel="${esc(code)}">Đào tạo</button>` : ''}</div>`;
+  if (sec === 'bar' && BAR) { const c = BAR.charts?.some(x => x.code === code), s = BAR.sops?.some(x => x.code === code); return c || s ? `<div class="jump">${c ? `<button class="btn" data-barjump="chart" data-bc="${esc(code)}">Chart</button>` : ''}${s ? `<button class="btn" data-barjump="sop" data-bc="${esc(code)}">Đào tạo</button>` : ''}</div>` : ''; }
+  return '';
+}
+document.addEventListener('click', e => { const b = e.target.closest('[data-barjump]'); if (!b) return; const k = b.dataset.barjump; st.sel[k === 'chart' ? 'barch' : 'barsop'] = b.dataset.bc; go(k === 'chart' ? 'bar-chart' : 'bar-sop'); });
+function usedChips(sec, code) {
+  const u = (S2[sec].idx?.used[code] || []).filter(x => x.r.code !== code);
+  const other = sec === 'sot' && S2.bep.idx?.used[code] ? S2.bep.idx.used[code] : [];
+  return `<div class="sec"><h4>Đang được dùng trong</h4>${u.length ? u.map(x => `<button class="chip" data-go="g-${x.g.id}" data-sel="${esc(x.r.code)}" style="margin:0 6px 6px 0">${esc(x.r.code || '')} · ${esc(x.r.name)}${x.combo ? '' : ' · ' + q(x.l.qty)}</button>`).join('') : '<span class="muted">Chưa công thức nào trong ' + SECN[sec].toLowerCase() + ' dùng mã này.</span>'}
+    ${other.length ? `<div class="note">Ở cơ sở (Bếp): ${other.length} món dùng mã này – ${other.slice(0, 12).map(x => `<a href="#" data-go="g-${x.g.id}" data-sel="${esc(x.r.code)}">${esc(x.r.name)}</a>`).join(', ')}${other.length > 12 ? '…' : ''}</div>` : ''}</div>`;
+}
+function recipeView(g, r) {
+  const sec = g.sec;
+  if (g.kind === 'btp') {
+    const bepPrice = sec === 'sot' ? S2.bep.idx?.cat[r.code]?.price : null;
+    return `<div class="dhead"><h2>${esc(r.name)}</h2><span class="code" style="font-family:var(--f-display);font-size:18px;color:var(--muted)">${esc(r.code)}${r.cat ? ' · ' + esc(r.cat) : ''}</span></div>
+    <div class="facts"><div><small>Tổng nguyên liệu</small><b>${q(r.totQty)} g</b></div><div><small>Sản lượng thành phẩm</small><b>${q(r.yld)} ${r.yUnit === 'quả' ? 'quả' : 'g'}</b></div>
+      <div><small>Tổng chi phí</small><b>${vnd(r.total)}</b></div><div><small>Giá thành / ${r.yUnit === 'quả' ? 'quả' : 'kg'}</small><b style="color:var(--accent)">${vnd(r.per)}</b></div>
+      ${r.sell != null ? `<div><small>Giá bán xuống CS</small><b>${vnd(r.sell)}</b></div><div><small>% giá thành</small><b>${pct(r.ratio)}</b></div><div><small>Lãi gộp / kg</small><b>${vnd(r.sell - r.per)}</b></div>` : ''}
+      ${bepPrice != null ? `<div><small>Giá ở Danh mục bếp</small><b>${vnd(bepPrice)}</b></div>` : ''}</div>
+    ${linesTable(sec, r, r.total)}${usedChips(sec, r.code)}`;
+  }
+  const opts = r.opts && r.opts.choices?.length;
+  return `<div class="dhead"><h2>${esc(r.name)}</h2><span class="code" style="font-family:var(--f-display);font-size:18px;color:var(--muted)">${esc(r.code)}${r.cat ? ' · ' + esc(r.cat) : ''}</span>${chartJump(sec, r.code)}</div>
+    <div class="facts"><div><small>Giá bán</small><b>${vnd(r.price)}</b></div><div><small>Cost${opts ? ' (PA cao nhất)' : ''}</small><b>${vnd(r.total)}</b></div><div><small>Tỷ lệ cost</small><b>${r.price ? pillFor(r.total / r.price) : '—'}</b></div><div><small>Lãi gộp</small><b>${r.price ? vnd(r.price - r.total) : '—'}</b></div>
+      ${opts ? `<div><small>Cost PA thấp nhất</small><b>${vnd(r.costMin)}${r.price ? ' · ' + pct(r.costMin / r.price) : ''}</b></div>` : ''}${r.off ? '<div><small>Trạng thái</small><b><span class="pill mute">Đã bỏ</span></b></div>' : ''}</div>
+    ${r.pnote ? `<div class="note">${esc(r.pnote)}</div>` : ''}
+    ${linesTable(sec, r, r.fixed || r.total)}
+    ${opts ? `<div class="sec"><h4>Phần khách chọn: ${q(r.opts.n)} ngăn × 1 trong ${r.opts.choices.length} gói (tính theo gói đắt nhất)</h4><div class="tbl"><table><thead><tr><th>Mã</th><th>Gói</th><th class="n">Cost / gói</th></tr></thead><tbody>${r.opts.choices.map(c => { const L = s2Loc(sec, c.code); return `<tr class="${L ? 'click' : ''}" ${L ? `data-go="${L.mod}" data-sel="${esc(L.sel)}"` : ''}><td class="code">${esc(c.code)}</td><td>${esc(c.name)}${c.miss ? ' <span class="pill warn">dùng số file</span>' : ''}</td><td class="n">${vnd(c.cost)}</td></tr>`; }).join('')}</tbody></table></div></div>` : ''}
+    ${g.kind === 'dish' ? usedChipsCombo(sec, r.code) : ''}`;
+}
+function usedChipsCombo(sec, code) {
+  const u = (S2[sec].idx?.used[code] || []).filter(x => x.combo || x.r.opts);
+  return u.length ? `<div class="sec"><h4>Có trong</h4>${u.map(x => `<button class="chip" data-go="g-${x.g.id}" data-sel="${esc(x.r.code)}" style="margin:0 6px 6px 0">${esc(x.r.name)}</button>`).join('')}</div>` : '';
+}
+function comboRows(sec, list, ed, gi) {
+  return list.map((it, i) => { const L = s2Loc(sec, it.code); return `<tr class="${L && !ed ? 'click' : ''}" ${L && !ed ? `data-go="${L.mod}" data-sel="${esc(L.sel)}"` : ''} data-ci="${gi}|${i}"><td class="code">${esc(it.code)}</td><td>${esc(it.dname || it.name)}${it.miss ? ' <span class="pill warn" title="Món chưa có trong app – dùng cost trong file combo">số file</span>' : ''}${it.note ? `<div class="note" style="margin:0">${esc(it.note)}</div>` : ''}</td><td class="n">${ed && gi === 'f' ? inp(fmtIn(it.qty), 'data-cq', 60) : q(it.qty)}</td><td class="n">${vnd(it.cost)}</td><td class="n hm">${vnd(it.price)}</td><td class="n hm">${it.price ? pct(it.cost / it.price) : '—'}</td>${ed ? `<td><button class="xdel" data-cdel="${gi}|${i}" title="Bỏ món">×</button></td>` : ''}</tr>`; }).join('');
+}
+function comboView(g, c, ed) {
+  const sec = g.sec, th = `<thead><tr><th>Mã</th><th>Món</th><th class="n">SL</th><th class="n">Cost món</th><th class="n hm">Giá lẻ</th><th class="n hm">% món lẻ</th>${ed ? '<th></th>' : ''}</tr></thead>`;
+  return `${ed ? '' : `<div class="dhead"><h2>${esc(c.name)}</h2></div>`}
+    <div class="facts">${ed ? '' : `<div><small>Giá combo</small><b>${vnd(c.price)}</b></div>`}<div><small>Cost${c.groups.length ? ' (PA cao nhất)' : ''}</small><b>${vnd(c.total)}</b></div><div><small>% cost / combo</small><b>${c.price ? pillFor(c.total / c.price) : '—'}</b></div>
+      ${c.costMin != null ? `<div><small>PA thấp nhất</small><b>${vnd(c.costMin)} · ${pct(c.costMin / c.price)}</b></div>` : ''}<div><small>Giá trị gọi lẻ</small><b>${vnd(c.retail)}</b></div><div><small>Khách tiết kiệm</small><b>${vnd(c.save)}${c.retail ? ' · ' + pct(c.save / c.retail) : ''}</b></div>${c.oldPrice ? `<div><small>Giá combo cũ</small><b>${vnd(c.oldPrice)}</b></div>` : ''}</div>
+    <div class="sec"><h4>A. Món cố định</h4><div class="tbl"><table>${th}<tbody>${comboRows(sec, c.fixed, ed, 'f')}</tbody></table></div></div>
+    ${c.groups.map((gr, gi) => `<div class="sec"><h4>${String.fromCharCode(66 + gi)}. ${esc(gr.label || 'Nhóm lựa chọn')}</h4><div class="tbl"><table>${th}<tbody>${comboRows(sec, gr.items, ed, gi)}</tbody></table></div></div>`).join('')}
+    <div class="note">Cost và giá lẻ lấy trực tiếp từ món trong app nên tự cập nhật khi món đổi định lượng / giá. Món đánh dấu “số file” chưa có trong app, đang dùng cost ghi trong file combo.</div>`;
+}
+
+/* ---------- DANH MỤC NVL ---------- */
+function viewS2Cat(sec) {
+  const X = S2[sec], ed = EDIT.on && canEdit();
+  if (ed) return s2EditCat(sec);
+  const items = X.cat?.items || [], used = X.idx?.used || {};
+  const f = (st.s2cF ??= {})[sec] ??= { q: '', grp: '' };
+  const grps = [...new Set(items.map(n => n.grp).filter(Boolean))];
+  $('#main').innerHTML = head('Danh mục NVL ' + SECN[sec].toLowerCase(), `${items.length} mã nguyên liệu & bán thành phẩm dùng chung cho mọi nhóm của ${SECN[sec]}. Mã BTP có công thức trong app tự lấy giá thành từ công thức.${X.cat?.file ? ' · File: ' + esc(X.cat.file) : ''}`,
+    `<button class="btn" id="cexp">Tải Excel</button>${isAdmin() ? '<button class="btn" id="cup">Cập nhật file</button>' : ''}`) +
+    `<div class="toolbar">${searchInput('scq', 'Tìm mã hoặc tên nguyên liệu…', f.q)}${grps.length > 1 ? `<select id="scg"><option value="">Mọi nhóm</option>${grps.map(x => `<option ${f.grp === x ? 'selected' : ''}>${esc(x)}</option>`).join('')}</select>` : ''}</div><section class="panel" id="sct"></section><div class="note" id="scs"></div>`;
+  const draw = () => {
+    const qq = norm(f.q);
+    const rs = items.filter(n => (!f.grp || n.grp === f.grp) && (!qq || norm(n.code + ' ' + n.name).includes(qq)));
+    $('#scs').textContent = `${rs.length} mã`;
+    sortable($('#sct'), rs, [
+      { h: 'Mã', v: n => n.code, cls: 'code' }, { h: 'Tên nguyên liệu', v: n => n.name, f: n => esc(n.name) + (n.grp ? `<div class="note" style="margin:0">${esc(n.grp)}</div>` : '') }, { h: 'ĐVT', v: n => n.unit },
+      { h: 'TL đạt', n: 1, v: n => n.tl, f: n => pct(n.tl) }, { h: 'Đơn giá', n: 1, v: n => n.price, f: n => n.price ? vnd(n.price) : '<span class="pill bad">0</span>' },
+      { h: 'Nguồn giá', v: n => n.calc ? 'Tự tính' : (n.src || 'Nhập tay'), f: n => n.calc ? `<span class="pill good">Tự tính · ${esc(s2Group(n.calc)?.name || '')}</span>` : `<span class="muted">${esc(n.src || 'Nhập tay')}</span>` },
+      { h: 'Nơi dùng', n: 1, v: n => (used[n.code] || []).length },
+    ], n => go(`n-${sec}-find`, n.code));
+  };
+  $('#scq').oninput = e => { f.q = e.target.value; draw(); };
+  if ($('#scg')) $('#scg').onchange = e => { f.grp = e.target.value; draw(); };
+  $('#cexp').onclick = () => exportCatalog(sec);
+  if ($('#cup')) $('#cup').onclick = () => { st.up = { sec, target: 'cat' }; go('capnhat'); };
+  draw();
+}
+
+/* ---------- TRA CỨU NVL ---------- */
+function viewS2Find(sec) {
+  const X = S2[sec], cat = X.idx?.cat || {}, used = X.idx?.used || {};
+  const codes = [...new Set([...Object.keys(cat), ...Object.keys(used)])].sort((a, b) => a.localeCompare(b, 'vi', { numeric: true }));
+  const label = c => cat[c]?.name || used[c]?.[0]?.l?.name || used[c]?.[0]?.l?.dname || c;
+  let code = st.sel[`n-${sec}-find`]; if (!codes.includes(code)) code = codes.find(c => used[c]) || codes[0];
+  st.sel[`n-${sec}-find`] = code;
+  const n = cat[code], u = (used[code] || []).filter(x => !x.combo);
+  const rec = s2Loc(sec, code);
+  $('#main').innerHTML = head('Tra cứu nguyên liệu · ' + SECN[sec], 'Chọn một nguyên liệu / BTP để xem tất cả công thức đang dùng nó, kèm định lượng và tiền cost.') +
+    `<div class="toolbar"><div id="sfb" style="flex:1 1 320px;min-width:0"></div></div>
+    ${code ? `<section class="panel"><div class="dhead"><h2>${esc(label(code))}</h2><span class="code" style="font-family:var(--f-display);font-size:18px;color:var(--muted)">${esc(code)}</span>${rec ? `<div class="jump"><button class="btn" data-go="${rec.mod}" data-sel="${esc(rec.sel)}">Xem công thức</button></div>` : ''}</div>
+      <div class="facts"><div><small>ĐVT</small><b>${esc(n?.unit || '—')}</b></div><div><small>TL đạt</small><b>${pct(n?.tl)}</b></div><div><small>Đơn giá</small><b>${vnd(n?.price)}</b></div><div><small>Nguồn giá</small><b>${n?.calc ? 'Tự tính từ công thức' : esc(n?.src || (n ? 'Nhập tay' : 'Không có trong danh mục'))}</b></div><div><small>Số công thức dùng</small><b>${u.length}</b></div></div>
+      ${u.length ? `<div class="tbl"><table><thead><tr><th>Nhóm</th><th>Công thức</th><th class="n">Định lượng</th><th class="n">Thành tiền</th><th class="n">% trong món</th></tr></thead><tbody>${u.map(x => `<tr class="click" data-go="g-${x.g.id}" data-sel="${esc(x.r.code)}"><td class="muted">${esc(x.g.name)}</td><td>${esc(x.r.name)} <span class="muted">${esc(x.r.code)}</span></td><td class="n">${q(x.l.qty)} <span class="muted">${esc(unitOf(sec, x.l))}</span></td><td class="n">${vnd(x.l.amount)}</td><td class="n">${x.r.total ? pct((x.l.amount || 0) / (x.r.fixed || x.r.total)) : '—'}</td></tr>`).join('')}</tbody></table></div>` : '<div class="empty">Chưa công thức nào dùng mã này.</div>'}</section>` : '<div class="empty">Chưa có dữ liệu.</div>'}`;
+  combo($('#sfb'), codes.map(c => ({ code: c, name: label(c), k: norm(c + ' ' + label(c)) })), code ? code + ' — ' + label(code) : '', c => { st.sel[`n-${sec}-find`] = c; viewS2Find(sec); }, 'Gõ mã hoặc tên nguyên liệu…');
+}
+
+/* ================= SỬA TRỰC TIẾP dữ liệu mẫu 2026 (chỉ Quản trị) ================= */
+EDIT.s2keys = new Set();
+function s2rec(sec, key, code, name, field, oldv, newv, ctx = '') {
+  const k = ['s2', key, code, field, ctx].join('|');
+  const ex = EDIT.changes.find(c => c.k === k);
+  if (ex) { ex.new = newv; if (ex.new === ex.old) EDIT.changes.splice(EDIT.changes.indexOf(ex), 1); }
+  else if (oldv !== newv) EDIT.changes.push({ k, s2: true, key, area: sec, what: 's2', code, name, field, old: oldv, new: newv, ctx });
+  EDIT.s2keys.add(key);
+  drawEditBar();
+}
+const s2Snap = () => Object.fromEntries(['bep', 'bar', 'sot'].map(s => [s, s2Clean({ cat: S2[s].cat, groups: S2[s].groups })]));
+function s2Restore(snap) { ['bep', 'bar', 'sot'].forEach(s => { S2[s].cat = snap[s].cat; S2[s].groups = snap[s].groups; }); s2ComputeAll(); }
+async function s2SaveKeys(now, by) {
+  const keys = [...EDIT.s2keys];
+  for (const key of keys) { const live = await API.stampOf(key); if (live && S2META[key] && live !== S2META[key]) throw new Error('Một nhóm vừa được cập nhật ở máy khác. Bấm Hủy, tải lại app rồi sửa lại.'); }
+  for (const key of keys) {
+    const n = EDIT.changes.filter(c => c.key === key).length;
+    if (key.startsWith('s2cat:')) { const sec = key.slice(6); const c = s2Clean(S2[sec].cat); c.edited_at = now; c.edited_by = by; await API.publishExtra(key, c, { sec, kind: 'catalog', by, edits: n }); }
+    else { const g = s2Group(key.slice(4)); if (!g) { await API.deleteKey(key); continue; } const c = s2Clean(g); c.edited_at = now; c.edited_by = by; await API.publishExtra(key, c, { sec: g.sec, kind: g.kind, name: g.name, by, edits: n }); }
+  }
+  EDIT.s2keys = new Set();
+}
+const catItems = sec => (S2[sec].cat ??= { items: [] }).items;
+const comboPick = (sec) => catItems(sec).map(n => ({ code: n.code, name: n.name, k: norm(n.code + ' ' + n.name) }));
+
+/* ---------- công thức món / BTP ---------- */
+function s2EditView(g, r) {
+  if (g.kind === 'combo') return s2ComboEdit(g, r);
+  const sec = g.sec, btp = g.kind === 'btp';
+  const cats = [...new Set(g.items.map(x => x.cat).filter(Boolean))];
+  const catSel = `<select class="etx" data-t="cat"><option value="">— không nhóm —</option>${[...new Set([...cats, r.cat || ''])].filter(Boolean).map(c => `<option ${c === r.cat ? 'selected' : ''}>${esc(c)}</option>`).join('')}<option value="__new">+ Nhóm mới…</option></select>`;
+  const showInc = btp;
+  return `<div class="dhead" style="align-items:center"><div style="flex:1 1 260px;display:grid;gap:6px;min-width:0">${tin(r.name, 'data-t="name" style="font-size:20px;font-weight:700;width:100%"', 420)}<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center"><span class="code" style="font-family:var(--f-display);font-size:16px;color:var(--muted)">${esc(r.code)}</span>${catSel}${!btp ? `<label class="muted"><input type="checkbox" data-t="off" ${r.off ? 'checked' : ''}> Đã bỏ</label>` : ''}</div></div><button class="btn" id="edelit" style="color:var(--bad)">Xóa ${btp ? 'công thức' : 'món'}</button></div>
+  <div class="facts">
+    ${btp ? `<div><small>Sản lượng thành phẩm</small><span>${inp(fmtIn(r.yld), 'data-h="yld"', 100)} <select class="etx" data-t="yUnit"><option ${r.yUnit !== 'quả' ? 'selected' : ''}>g</option><option ${r.yUnit === 'quả' ? 'selected' : ''}>quả</option></select></span></div>
+      <div><small>Tổng chi phí</small><b>${vnd(r.total)}</b></div><div><small>Giá thành / ${r.yUnit === 'quả' ? 'quả' : 'kg'}</small><b style="color:var(--accent)">${vnd(r.per)}</b></div>
+      ${sec === 'sot' ? `<div><small>Giá bán xuống CS</small><span>${inp(fmtIn(r.sell), 'data-h="sell"', 110)}</span></div><div><small>% giá thành</small><b>${pct(r.ratio)}</b></div>` : ''}`
+    : `<div><small>Giá bán</small><span>${inp(fmtIn(r.price), 'data-h="price"', 120)}</span></div><div><small>Cost</small><b>${vnd(r.total)}</b></div><div><small>Tỷ lệ cost</small><b>${r.price ? pillFor(r.total / r.price) : '—'}</b></div>
+      ${r.opts ? `<div><small>Số ngăn</small><span>${inp(fmtIn(r.opts.n), 'data-h="n"', 60)}</span></div>` : ''}`}
+  </div>
+  <div class="tbl"><table><thead><tr><th class="hm">Mã NVL</th><th>Tên nguyên liệu</th><th class="hm">ĐVT</th><th class="n hm">TL đạt</th><th class="n hm">Giá nhập</th><th class="n">Định lượng</th>${showInc ? '<th>Tính</th>' : ''}<th class="n">Thành tiền</th><th></th></tr></thead><tbody>
+  ${r.lines.map((l, i) => `<tr data-i="${i}"><td class="code hm">${esc(l.code || '—')}</td><td>${esc(l.name)}${l.miss ? ' <span class="pill warn">Không có trong danh mục</span>' : ''}<div class="note sm-only" style="margin:0">${esc(l.code || '')} · ${esc(unitOf(sec, l))}${l.tl < 1 ? ' · TL ' + pct(l.tl) : ''}</div></td><td class="hm">${esc(unitOf(sec, l))}</td><td class="n hm">${pct(l.tl)}</td><td class="n hm">${l.price ? vnd(l.price) : '<span class="pill bad">0</span>'}</td>
+    <td class="n">${inp(fmtIn(l.qty), 'data-q', 84)}</td>${showInc ? `<td><input type="checkbox" data-inc ${l.inc === false ? '' : 'checked'} title="Tính vào cost"></td>` : ''}<td class="n">${vnd(l.amount)}</td><td><button class="xdel" data-del="${i}" title="Xóa nguyên liệu này" aria-label="Xóa">×</button></td></tr>`).join('')}
+  </tbody></table></div>
+  <div class="pad addrow"><div id="eadd" style="flex:1 1 260px;min-width:0"></div>${inp('', 'id="eaddq" placeholder="Định lượng"', 110)}<button class="btn pri" id="eaddb">Thêm nguyên liệu</button></div>
+  <div class="note pad" style="margin:0">Giá nhập, TL đạt, ĐVT lấy từ Danh mục NVL ${SECN[sec].toLowerCase()} – muốn đổi thì sửa ở trang Danh mục. Định lượng nhập theo g/ml, riêng nguyên liệu tính theo cái/quả… thì nhập số cái.</div>`;
+}
+function s2BindEdit(g, r) {
+  if (!r) return;
+  const sec = g.sec, key = 's2g:' + g.id, host = $('#ld-d'), refresh = () => { s2Compute(sec); viewGroup(g.id); };
+  if (g.kind === 'combo') return s2BindCombo(g, r);
+  bindText(host, i => {
+    const t = i.dataset.t;
+    if (t === 'name') { const v = i.value.trim(); if (!v) return false; const o = r.name; r.name = v; s2rec(sec, key, r.code, v, 'name', o, v); refresh(); return; }
+    if (t === 'cat') { let v = i.value; if (v === '__new') { v = (prompt('Tên nhóm mới:') || '').trim(); if (!v) { refresh(); return; } } const o = r.cat; r.cat = v || null; s2rec(sec, key, r.code, r.name, 'cat', o, r.cat); refresh(); return; }
+    if (t === 'yUnit') { const o = r.yUnit; r.yUnit = i.value === 'quả' ? 'quả' : 'g'; s2rec(sec, key, r.code, r.name, 'yUnit', o, r.yUnit); refresh(); return; }
+  });
+  host.querySelectorAll('[data-t="off"]').forEach(c => c.onchange = () => { const o = r.off ? 'Đã bỏ' : 'Đang bán'; r.off = c.checked; s2rec(sec, key, r.code, r.name, 'offst', o, r.off ? 'Đã bỏ' : 'Đang bán'); refresh(); });
+  $('#edelit').onclick = () => { if (!confirm(`Xóa ${r.code} ${r.name} khỏi nhóm ${g.name}? (lưu khi bấm Lưu & đăng)`)) return; g.items.splice(g.items.indexOf(r), 1); s2rec(sec, key, r.code, r.name, 'delitem', r.name, null); st.sel['g-' + g.id] = null; refresh(); };
+  bindInputs(host, i => {
+    const h = i.dataset.h;
+    if (h) {
+      const v = parseNum(i.value);
+      if (h === 'yld' || h === 'n') { if (v == null || isNaN(v) || v <= 0) return false; if (h === 'yld') { const o = r.yld; r.yld = v; s2rec(sec, key, r.code, r.name, 'yld', o, v); } else { const o = r.opts.n; r.opts.n = v; s2rec(sec, key, r.code, r.name, 'ngan', o, v); } refresh(); return; }
+      if (v != null && (isNaN(v) || v < 0)) return false;
+      const f = h === 'sell' ? 'sell' : 'price', o = r[f]; r[f] = v; s2rec(sec, key, r.code, r.name, h === 'sell' ? 'sellCs' : 'sell', o, v); refresh(); return;
+    }
+    if (!i.closest('tr[data-i]')) return;
+    const l = r.lines[+i.closest('tr').dataset.i], v = parseNum(i.value);
+    if (v == null || isNaN(v) || v < 0) { toast('Định lượng không hợp lệ.'); return false; }
+    const o = l.qty; l.qty = v; s2rec(sec, key, r.code, r.name, 'qty', o, v, (l.code || '') + ' ' + l.name); refresh();
+  });
+  host.querySelectorAll('[data-inc]').forEach(c => c.onchange = () => { const l = r.lines[+c.closest('tr').dataset.i]; const o = l.inc === false ? 'K' : 'C'; l.inc = c.checked; s2rec(sec, key, r.code, r.name, 'inc', o, c.checked ? 'C' : 'K', (l.code || '') + ' ' + l.name); refresh(); });
+  host.querySelectorAll('[data-del]').forEach(b => b.onclick = () => { const l = r.lines[+b.dataset.del]; if (!confirm(`Xóa ${l.name} khỏi ${r.name}?`)) return; r.lines.splice(+b.dataset.del, 1); s2rec(sec, key, r.code, r.name, 'del', l.qty, null, (l.code || '') + ' ' + l.name); refresh(); });
+  const cat = catItems(sec); let pick = null;
+  combo($('#eadd'), comboPick(sec), '', c => { pick = c; $('#eadd-i').value = c + ' — ' + (cat.find(x => x.code === c)?.name || ''); $('#eaddq').focus(); }, 'Chọn nguyên liệu trong danh mục…');
+  $('#eaddb').onclick = () => {
+    const n = cat.find(x => x.code === pick), v = parseNum($('#eaddq').value);
+    if (!n) return toast('Chọn nguyên liệu trong danh sách trước.');
+    if (v == null || isNaN(v) || v <= 0) return toast('Nhập định lượng lớn hơn 0.');
+    if (n.code === r.code) return toast('Không thể dùng chính công thức này làm nguyên liệu.');
+    if (r.lines.some(l => l.code === n.code)) return toast(n.code + ' đã có trong công thức, sửa định lượng ở dòng đó.');
+    r.lines.push({ code: n.code, name: n.name, qty: v, div: KBTEngine2.unitDiv(n.unit), inc: true, unit: n.unit });
+    s2rec(sec, key, r.code, r.name, 'add', null, v, n.code + ' ' + n.name); refresh();
+  };
+}
+function s2NewItem(g) {
+  const sec = g.sec, key = 's2g:' + g.id, btp = g.kind === 'btp', cb = g.kind === 'combo';
+  const cats = [...new Set(g.items.map(x => x.cat).filter(Boolean))];
+  const host = $('#ld-d') || $('#main');
+  host.innerHTML = `<div class="dhead"><h2>Thêm ${cb ? 'combo' : btp ? 'công thức' : 'món'} vào ${esc(g.name)}</h2></div><div class="pad newform">
+    ${cb ? '' : `<label>Mã<input id="nic" class="etx" style="width:120px" placeholder="${btp ? 'vd BTP500' : 'vd MAC99'}"></label>`}
+    <label>Tên<input id="nin" class="etx" style="width:260px"></label>
+    ${!cb && cats.length ? `<label>Nhóm<input id="nig" class="etx" list="nigl" style="width:180px" value="${esc(cats[0])}"><datalist id="nigl">${cats.map(c => `<option value="${esc(c)}">`).join('')}</datalist></label>` : ''}
+    ${btp ? `<label>Sản lượng thành phẩm (g)<input id="niy" class="ein" inputmode="decimal" style="width:110px" value="1000"></label>${sec === 'sot' ? '<label>Giá bán xuống CS (để trống nếu dùng nội bộ)<input id="nip" class="ein" inputmode="decimal" style="width:120px"></label>' : ''}` : `<label>Giá bán${cb ? ' combo' : ''}<input id="nip" class="ein" inputmode="decimal" style="width:120px"></label>`}
+    <button class="btn pri" id="niok">Tạo</button><button class="btn" id="nix">Hủy</button></div><div class="note pad" style="margin:0">Tạo xong, thêm ${cb ? 'món' : 'nguyên liệu'} ở màn hình tiếp theo.${btp ? ' Mã BTP mới sẽ được thêm vào Danh mục để các món khác dùng được.' : ''}</div>`;
+  host.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  $('#nix').onclick = () => viewGroup(g.id);
+  $('#niok').onclick = () => {
+    const name = $('#nin').value.trim(), code = cb ? 'CB' + String(g.items.length + 1).padStart(2, '0') + Date.now().toString(36).slice(-3).toUpperCase() : $('#nic').value.trim();
+    const price = $('#nip') ? parseNum($('#nip').value) : null, yld = $('#niy') ? parseNum($('#niy').value) : null, cat = $('#nig') ? $('#nig').value.trim() || null : null;
+    if (!name || !code) return toast(cb ? 'Nhập tên combo.' : 'Nhập mã và tên.');
+    if (!cb && !KBTParser2.isCode(code)) return toast('Mã chỉ gồm chữ không dấu và số, ví dụ MAC99.');
+    if (!cb && S2[sec].groups.some(x => x.kind !== 'combo' && x.items.some(y => y.code.toLowerCase() === code.toLowerCase()))) return toast('Mã ' + code + ' đã có trong ' + SECN[sec] + '.');
+    if (price != null && isNaN(price)) return toast('Giá không hợp lệ.');
+    if (btp && (!yld || isNaN(yld) || yld <= 0)) return toast('Nhập sản lượng thành phẩm lớn hơn 0.');
+    let it;
+    if (cb) it = { code, name, price, fixed: [], groups: [], file: {} };
+    else if (btp) { it = { code, name, cat, yld, yUnit: 'g', sell: price, lines: [], file: {} }; if (!catItems(sec).some(n => n.code === code)) { catItems(sec).push({ code, name, unit: 'kg', tl: 1, price: 0, grp: 'BTP THÊM TRÊN APP' }); s2rec(sec, 's2cat:' + sec, code, name, 'newnvl', null, name); } }
+    else it = { code, name, cat, price, lines: [], file: {} };
+    g.items.push(it); s2rec(sec, key, code, name, 'newitem', null, name, g.name);
+    st.sel['g-' + g.id] = code; s2Compute(sec); viewGroup(g.id); toast('Đã tạo. Thêm ' + (cb ? 'món' : 'nguyên liệu') + ' vào ' + name + '.');
+  };
+  ($('#nic') || $('#nin')).focus();
+}
+
+/* ---------- combo ---------- */
+function s2ComboEdit(g, c) {
+  return `<div class="dhead" style="align-items:center"><div style="flex:1 1 260px;min-width:0">${tin(c.name, 'data-t="name" style="font-size:20px;font-weight:700;width:100%"', 420)}</div><button class="btn" id="edelit" style="color:var(--bad)">Xóa combo</button></div>
+    <div class="facts"><div><small>Giá combo</small><span>${inp(fmtIn(c.price), 'data-h="price"', 120)}</span></div></div>
+    ${comboView(g, c, true)}
+    <div class="pad addrow"><div id="cadd" style="flex:1 1 260px;min-width:0"></div><select class="etx" id="caddg"><option value="f">vào Món cố định</option>${c.groups.map((x, i) => `<option value="${i}">vào ${String.fromCharCode(66 + i)}. ${esc(x.label || 'Nhóm lựa chọn')}</option>`).join('')}<option value="new">vào nhóm lựa chọn mới</option></select><button class="btn pri" id="caddb">Thêm món</button></div>`;
+}
+function s2BindCombo(g, c) {
+  const sec = g.sec, key = 's2g:' + g.id, host = $('#ld-d'), refresh = () => { s2Compute(sec); viewGroup(g.id); };
+  bindText(host, i => { if (i.dataset.t !== 'name') return; const v = i.value.trim(); if (!v) return false; const o = c.name; c.name = v; s2rec(sec, key, c.code, v, 'name', o, v); refresh(); });
+  bindInputs(host, i => {
+    const v = parseNum(i.value);
+    if (i.dataset.h === 'price') { if (v != null && (isNaN(v) || v < 0)) return false; const o = c.price; c.price = v; s2rec(sec, key, c.code, c.name, 'sell', o, v); refresh(); return; }
+    if (i.hasAttribute('data-cq')) { if (v == null || isNaN(v) || v <= 0) return false; const it = c.fixed[+i.closest('tr').dataset.ci.split('|')[1]]; const o = it.qty; it.qty = v; s2rec(sec, key, c.code, c.name, 'qty', o, v, it.code + ' ' + (it.dname || it.name)); refresh(); }
+  });
+  host.querySelectorAll('[data-cdel]').forEach(b => b.onclick = () => {
+    const [gi, i] = b.dataset.cdel.split('|'), list = gi === 'f' ? c.fixed : c.groups[+gi].items, it = list[+i];
+    list.splice(+i, 1); if (gi !== 'f' && !list.length) c.groups.splice(+gi, 1);
+    s2rec(sec, key, c.code, c.name, 'delDish', it.qty || 1, null, it.code + ' ' + (it.dname || it.name)); refresh();
+  });
+  $('#edelit').onclick = () => { if (!confirm(`Xóa ${c.name}?`)) return; g.items.splice(g.items.indexOf(c), 1); s2rec(sec, key, c.code, c.name, 'delitem', c.name, null); st.sel['g-' + g.id] = null; refresh(); };
+  const dishes = S2[sec].groups.filter(x => x.kind === 'dish').flatMap(x => x.items.map(r => ({ code: r.code, name: r.name + ' · ' + x.name, k: norm(r.code + ' ' + r.name), r })));
+  let pick = null;
+  combo($('#cadd'), dishes, '', v => { pick = v; $('#cadd-i').value = v + ' — ' + (dishes.find(d => d.code === v)?.r.name || ''); }, 'Chọn món trong app…');
+  $('#caddb').onclick = () => {
+    const d = dishes.find(x => x.code === pick); if (!d) return toast('Chọn món trong danh sách trước.');
+    const to = $('#caddg').value; const it = { code: d.code, name: d.r.name, qty: 1, cost0: null, price0: null, note: null };
+    if (to === 'f') c.fixed.push(it); else if (to === 'new') c.groups.push({ label: 'Nhóm lựa chọn — khách chọn 1 món', items: [it] }); else c.groups[+to].items.push(it);
+    s2rec(sec, key, c.code, c.name, 'addDish', null, 1, d.code + ' ' + d.r.name); refresh();
+  };
+}
+
+/* ---------- danh mục ---------- */
+function s2EditCat(sec) {
+  const list = catItems(sec), key = 's2cat:' + sec, used = S2[sec].idx?.used || {};
+  const f = (st.s2cF ??= {})[sec] ??= { q: '', grp: '' };
+  $('#main').innerHTML = head('Sửa Danh mục NVL ' + SECN[sec].toLowerCase(), 'Sửa tên, ĐVT, TL đạt, đơn giá. Mọi món / BTP dùng mã đó trong ' + SECN[sec] + ' tự tính lại. Mã BTP “tự tính” lấy giá từ công thức – sửa công thức để đổi giá. TL đạt nhập theo % (ví dụ 95). ĐVT là cái/quả/chai… thì đơn giá hiểu là giá 1 đơn vị.') +
+    `<div class="toolbar">${searchInput('enq', 'Tìm mã hoặc tên nguyên liệu…', f.q)}<button class="btn pri" id="ennew">+ Thêm nguyên liệu mới</button></div><div id="ennewf"></div><section class="panel"><div class="tbl" id="ent"></div></section><div class="note" id="ens"></div>${UNIT_DL}`;
+  const draw = () => {
+    const qq = norm(f.q), rs = list.filter(n => !qq || norm(n.code + ' ' + n.name).includes(qq)), show = rs.slice(0, 150);
+    $('#ent').innerHTML = `<table><thead><tr><th>Mã</th><th>Tên nguyên liệu</th><th>ĐVT</th><th class="n">TL đạt %</th><th class="n">Đơn giá</th><th class="n">Nơi dùng</th></tr></thead><tbody>${show.map(n => { const u = (used[n.code] || []).length; return `<tr data-c="${esc(n.code)}"><td class="code">${esc(n.code)}</td><td>${tin(n.name, 'data-t="name"', 230)}</td><td>${tin(n.unit || '', 'data-t="unit" list="unitlist"', 64)}</td><td class="n">${inp(fmtTl(n.tl), 'data-f="tl"', 70)}</td><td class="n">${n.calc ? `<span class="pill good" title="Tự tính từ công thức">${vnd(n.price)}</span>` : inp(fmtIn(n.price), 'data-f="price"', 110)}</td><td class="n">${u || `<button class="xdel" data-delnvl="${esc(n.code)}" title="Xóa mã chưa dùng">×</button>`}</td></tr>`; }).join('')}</tbody></table>`;
+    $('#ens').textContent = rs.length > show.length ? `Đang hiện ${show.length}/${rs.length} mã – gõ tìm để lọc.` : `${rs.length} mã`;
+    bindInputs($('#ent'), i => {
+      const n = list.find(x => x.code === i.closest('tr').dataset.c), fld = i.dataset.f;
+      const v = fld === 'tl' ? parseTl(i.value) : parseNum(i.value);
+      if (v == null || isNaN(v) || v < 0 || (fld === 'tl' && (v === 0 || v > 1))) { toast(fld === 'tl' ? 'TL đạt từ 1 đến 100%.' : 'Giá không hợp lệ.'); return false; }
+      const o = n[fld]; n[fld] = v; s2Compute(sec); s2rec(sec, key, n.code, n.name, fld, o, v);
+      const k = (used[n.code] || []).length; if (k) toast(`Đã tính lại ${k} công thức dùng ${n.code}.`);
+    });
+    bindText($('#ent'), i => {
+      const n = list.find(x => x.code === i.closest('tr').dataset.c), fld = i.dataset.t, v = i.value.trim();
+      if (!v) { toast('Không để trống.'); return false; }
+      const o = n[fld]; if (o === v) return; n[fld] = v;
+      if (fld === 'unit') { const nd = KBTEngine2.unitDiv(v), od = n.div; n.div = nd; S2[sec].groups.forEach(g => g.kind !== 'combo' && g.items.forEach(r => r.lines.forEach(l => { if (l.code === n.code) { l.div = nd; l.unit = v; } }))); if (od !== nd) toast(nd === 1 ? `ĐVT ${v}: đơn giá là giá 1 ${v}, định lượng tính theo số ${v}.` : `ĐVT ${v}: đơn giá là giá 1 kg/lít, định lượng tính theo g/ml.`); }
+      if (fld === 'name') S2[sec].groups.forEach(g => g.kind !== 'combo' && g.items.forEach(r => r.lines.forEach(l => { if (l.code === n.code) l.name = v; })));
+      s2Compute(sec); s2rec(sec, key, n.code, n.name, fld, o, v);
+    });
+    $('#ent').querySelectorAll('[data-delnvl]').forEach(b => b.onclick = () => { const n = list.find(x => x.code === b.dataset.delnvl); if (!confirm('Xóa ' + n.code + ' ' + n.name + ' khỏi danh mục?')) return; list.splice(list.indexOf(n), 1); s2rec(sec, key, n.code, n.name, 'delnvl', n.price, null); s2Compute(sec); draw(); });
+  };
+  $('#enq').oninput = e => { f.q = e.target.value; draw(); };
+  $('#ennew').onclick = () => {
+    $('#ennewf').innerHTML = `<section class="panel" style="margin-bottom:12px"><div class="pad newform"><label>Mã<input id="nnc" class="etx" style="width:110px" placeholder="vd BN500"></label><label>Tên nguyên liệu<input id="nnn" class="etx" style="width:240px"></label><label>ĐVT<input id="nnu" class="etx" list="unitlist" style="width:70px" value="kg"></label><label>Đơn giá (đ/kg hoặc đ/cái)<input id="nnp" class="ein" inputmode="decimal" style="width:120px"></label><label>TL đạt %<input id="nnt" class="ein" inputmode="decimal" style="width:70px" value="100"></label><button class="btn pri" id="nnok">Tạo</button><button class="btn" id="nnx">Đóng</button></div></section>`;
+    $('#nnx').onclick = () => $('#ennewf').innerHTML = '';
+    $('#nnok').onclick = () => {
+      const code = $('#nnc').value.trim(), name = $('#nnn').value.trim(), unit = $('#nnu').value.trim() || 'kg', price = parseNum($('#nnp').value), tl = parseTl($('#nnt').value) || 1;
+      if (!code || !name) return toast('Nhập mã và tên nguyên liệu.');
+      if (!KBTParser2.isCode(code)) return toast('Mã chỉ gồm chữ không dấu và số, ví dụ BN500.');
+      if (list.some(x => x.code.toLowerCase() === code.toLowerCase())) return toast('Mã ' + code + ' đã có trong danh mục.');
+      if (price != null && isNaN(price)) return toast('Giá không hợp lệ.');
+      list.push({ code, name, unit, tl, price, grp: 'THÊM TRÊN APP', src: 'Nhập tay' });
+      s2rec(sec, key, code, name, 'newnvl', null, price); s2Compute(sec);
+      f.q = code; $('#enq').value = code; $('#ennewf').innerHTML = ''; draw(); toast('Đã thêm ' + code + '.');
+    };
+    $('#nnc').focus();
+  };
+  draw();
+}
+
+/* ================= CẬP NHẬT DỮ LIỆU: chọn phân hệ lớn → chọn nhóm → tải file ================= */
+VIEWS['capnhat-cu'] = VIEWS.capnhat;
+const sameRecipe = (a, b) => a && b && a.yld === b.yld && a.lines.length === b.lines.length && a.lines.every((l, i) => l.code === b.lines[i].code && Math.abs((l.qty || 0) - (b.lines[i].qty || 0)) < 1e-9 && (l.inc !== false) === (b.lines[i].inc !== false));
+VIEWS.capnhat = function () {
+  if (!isAdmin()) return go('taikhoan');
+  if (EDIT.on) { $('#main').innerHTML = head('Cập nhật dữ liệu', 'Đang ở chế độ sửa – bấm Lưu & đăng hoặc Thoát ở thanh dưới trước khi tải file.'); return; }
+  const U = st.up ??= { sec: null, target: null, name: '' };
+  const X = U.sec ? S2[U.sec] : null;
+  const opt = (v, label, sub) => `<label class="uopt"><input type="radio" name="utg" value="${esc(v)}" ${U.target === v ? 'checked' : ''}><span><b>${label}</b>${sub ? `<small>${sub}</small>` : ''}</span></label>`;
+  $('#main').innerHTML = head('Cập nhật dữ liệu', 'Mỗi file thuộc 1 nhóm của 1 phân hệ lớn. Chỉ nhóm được chọn bị thay – các nhóm khác, Chart và Đào tạo giữ nguyên.') +
+    `<section class="panel"><h3>1. File này thuộc phân hệ nào?</h3><div class="pad secpick">${['bep', 'bar', 'sot'].map(s => `<button class="btn ${U.sec === s ? 'pri' : ''}" data-us="${s}" aria-pressed="${U.sec === s}">${SECN[s]}<small>${S2[s].groups.length} nhóm · ${S2[s].cat?.items?.length || 0} mã NVL</small></button>`).join('')}</div></section>
+    ${X ? `<section class="panel"><h3>2. Cập nhật vào đâu trong ${SECN[U.sec]}?</h3><div class="pad uopts">
+      ${opt('cat', 'Danh mục NVL ' + SECN[U.sec].toLowerCase(), `${X.cat?.items?.length || 0} mã${X.cat?.file ? ' · ' + esc(X.cat.file) : ''}`)}
+      ${X.groups.map(g => opt(g.id, esc(g.name), `${KINDN[g.kind]} · ${g.items.length} mục${g.file ? ' · ' + esc(g.file) : ''}${g.at ? ' · ' + esc(fmtTime(g.at)) : ''} <a href="#" data-delg="${g.id}" style="color:var(--bad);margin-left:6px">Xóa nhóm</a>`)).join('')}
+      ${opt('new', '+ Tạo nhóm mới', 'vd: Khai vị, Combo, Bán thành phẩm… Tên lấy theo tên file nếu để trống')}
+      ${U.target === 'new' ? `<input class="etx" id="unew" placeholder="Tên nhóm mới" value="${esc(U.name || '')}" style="width:280px;margin:4px 0 0 30px">` : ''}
+    </div></section>` : ''}
+    ${X && U.target ? `<section class="panel"><h3>3. Chọn file Excel</h3><div class="pad"><label class="drop" for="uf"><input type="file" id="uf" accept=".xlsx,.xlsm,.xls" hidden><b>Chọn file Excel</b><span class="muted">${U.target === 'cat' ? 'File có sheet DANH_MỤC (bất kỳ file nhóm nào cũng được)' : 'File mẫu 2026 có sheet COST (món, bán thành phẩm, sốt) hoặc COMBO'}</span></label></div><div id="upOut"></div></section>` : ''}
+    <section class="panel" style="margin-top:16px"><h3>Chart món & Đào tạo</h3><div class="pad"><p class="muted" style="margin-top:0">Chart và SOP đào tạo đang giữ nguyên như cũ${D?.charts?.length ? ` (bếp ${D.charts.length} chart, ${D.sops.length} SOP)` : ''}${BAR?.charts?.length ? ` · bar ${BAR.charts.length} chart` : ''}. Muốn thay thì tải file mẫu cũ ở đây.</p><button class="btn" id="uold">Tải file Chart / Đào tạo (mẫu cũ)</button></div></section>
+    <section class="panel" style="margin-top:16px"><h3>Xuất dữ liệu</h3><div class="pad" style="display:flex;gap:8px;flex-wrap:wrap">${['bep', 'bar', 'sot'].filter(s2Has).map(s => `<button class="btn" data-xall="${s}">Tải toàn bộ ${SECN[s]} (.zip)</button>`).join('') || '<span class="muted">Chưa có dữ liệu.</span>'}</div></section>`;
+  $('#main').querySelectorAll('[data-us]').forEach(b => b.onclick = () => { U.sec = b.dataset.us; U.target = null; U.name = ''; VIEWS.capnhat(); });
+  $('#main').querySelectorAll('input[name="utg"]').forEach(r => r.onchange = () => { U.target = r.value; VIEWS.capnhat(); });
+  if ($('#unew')) $('#unew').oninput = e => { U.name = e.target.value; };
+  $('#main').querySelectorAll('[data-delg]').forEach(a => a.onclick = async e => {
+    e.preventDefault(); const g = s2Group(a.dataset.delg);
+    if (!confirm(`Xóa nhóm “${g.name}” (${g.items.length} mục) khỏi ${SECN[g.sec]}? Không hoàn tác được – nên Tải Excel nhóm này trước.`)) return;
+    try { await API.deleteKey('s2g:' + g.id); try { await API.appendLog([{ at: new Date().toISOString(), by: ME.name || ME.email, area: g.sec, code: '', name: g.name, field: 'delgroup', old: g.file || null, new: null }]); } catch (x) { } U.target = null; await loadData(true); go('capnhat'); toast('Đã xóa nhóm ' + g.name + '.'); }
+    catch (err) { toast('Không xóa được: ' + err.message); }
+  });
+  $('#uold').onclick = () => VIEWS['capnhat-cu']();
+  $('#main').querySelectorAll('[data-xall]').forEach(b => b.onclick = () => exportSection(b.dataset.xall));
+  if ($('#uf')) $('#uf').onchange = e => { const f = e.target.files[0]; if (f) readUpload(f); };
+};
+
+async function readUpload(file) {
+  const U = st.up, out = $('#upOut');
+  out.innerHTML = '<div class="pad muted">Đang đọc file…</div>';
+  try {
+    await loadScript('vendor/xlsx.full.min.js');
+    const wb = XLSX.read(await file.arrayBuffer(), { type: 'array', cellFormula: false, cellHTML: false, cellText: false });
+    if (U.target === 'cat') { const p = KBTParser2.parseCatalogFile(XLSX, wb); return previewCatalog(file.name, p); }
+    const p = KBTParser2.parseGroupFile(XLSX, wb, file.name);
+    previewGroup(file.name, p);
+  } catch (e) { out.innerHTML = `<div class="pad"><div class="warnbox">Không đọc được file: ${esc(e.message)}</div></div>`; }
+}
+function catDiff(cur, inc) {
+  const by = Object.fromEntries((cur || []).map(n => [n.code, n]));
+  const add = inc.filter(n => !by[n.code]);
+  const chg = inc.filter(n => { const o = by[n.code]; return o && !o.calc && (Math.abs((o.price || 0) - (n.price || 0)) > 0.5 || Math.abs((o.tl || 1) - (n.tl || 1)) > 1e-6 || o.name !== n.name || lowU(o.unit) !== lowU(n.unit)); });
+  return { add, chg, by };
+}
+function mergeCatalog(cur, inc, mode) {
+  if (mode === 'none') return cur;
+  const out = (cur || []).map(n => ({ ...n })), by = Object.fromEntries(out.map(n => [n.code, n]));
+  inc.forEach(n => { const o = by[n.code]; if (!o) out.push({ ...n }); else if (mode === 'all') Object.assign(o, { name: n.name, unit: n.unit, tl: n.tl, price: n.price, grp: n.grp || o.grp, src: n.src || o.src }); });
+  if (mode === 'replace') return inc.map(n => ({ ...n }));
+  return out;
+}
+const diffTable = (rows, by) => rows.length ? `<details style="margin:6px 0"><summary class="muted">Xem ${rows.length} mã</summary><div class="tbl"><table><thead><tr><th>Mã</th><th>Tên</th><th class="n">Trong app</th><th class="n">Trong file</th></tr></thead><tbody>${rows.slice(0, 80).map(n => `<tr><td class="code">${esc(n.code)}</td><td>${esc(n.name)}</td><td class="n">${by[n.code] ? vnd(by[n.code].price) + (by[n.code].tl !== n.tl ? ' · TL ' + pct(by[n.code].tl) : '') : '—'}</td><td class="n">${vnd(n.price)}${by[n.code] && by[n.code].tl !== n.tl ? ' · TL ' + pct(n.tl) : ''}</td></tr>`).join('')}</tbody></table></div></details>` : '';
+
+function previewCatalog(fileName, p) {
+  const U = st.up, sec = U.sec, cur = S2[sec].cat?.items || [], d = catDiff(cur, p.catalog);
+  const missing = cur.filter(n => !p.catalog.some(x => x.code === n.code));
+  $('#upOut').innerHTML = `<div class="pad"><div class="kpis" style="margin:0 0 12px"><div class="kpi"><div class="l">Mã trong file</div><div class="v">${p.catalog.length}</div></div><div class="kpi"><div class="l">Mã mới</div><div class="v">${d.add.length}</div></div><div class="kpi"><div class="l">Mã khác giá / TL / tên</div><div class="v">${d.chg.length}</div></div><div class="kpi"><div class="l">Có trong app, không có trong file</div><div class="v">${missing.length}</div></div></div>
+    ${diffTable(d.chg, d.by)}
+    <div class="uopts"><label class="uopt"><input type="radio" name="ucm" value="all" checked><span><b>Cập nhật theo file + thêm mã mới</b><small>Giữ lại ${missing.length} mã không có trong file</small></span></label>
+    <label class="uopt"><input type="radio" name="ucm" value="replace"><span><b>Thay toàn bộ danh mục bằng file</b><small>Mã không có trong file sẽ bị bỏ</small></span></label></div>
+    <p class="muted">Mã BTP có công thức trong app vẫn tự tính giá từ công thức.</p><button class="btn pri" id="upub">Đăng lên app</button></div>`;
+  $('#upub').onclick = async () => {
+    const mode = document.querySelector('input[name="ucm"]:checked').value;
+    const items = mergeCatalog(cur, p.catalog, mode);
+    await publishUpload(sec, [], { items, file: fileName }, `Danh mục NVL ${SECN[sec].toLowerCase()}`, fileName, null);
+  };
+}
+
+function previewGroup(fileName, p) {
+  const U = st.up, sec = U.sec, X = S2[sec];
+  const target = U.target === 'new' ? null : s2Group(U.target);
+  const baseName = (U.name || '').trim() || fileName.replace(/\.[^.]+$/, '').replace(/\s*\(\d+\)$|\s+\d{1,2}$/, '').replace(/_/g, ' ').replace(/\s+/g, ' ').trim();
+  const cur = X.cat?.items || [];
+  const cd = p.catalog ? catDiff(cur, p.catalog) : null;
+  // BTP trong tab BÁN_THÀNH_PHẨM của file món
+  const btpOwner = {}; X.groups.filter(g => g.kind === 'btp' && g.id !== target?.id).forEach(g => g.items.forEach(r => { btpOwner[r.code] = { g, r }; }));
+  const locNew = (p.btpLocal || []).filter(b => !btpOwner[b.code]);
+  const locChg = (p.btpLocal || []).filter(b => btpOwner[b.code] && !sameRecipe(btpOwner[b.code].r, b));
+  const locChgAuto = locChg.filter(b => btpOwner[b.code].g.auto);
+  const btpGroups = X.groups.filter(g => g.kind === 'btp' && g.id !== target?.id);
+  const canSplit = p.kind === 'dish' && p.cats.length >= 2 && !target;
+  const st0 = st.upOpt = { cm: cur.length ? 'add' : 'all', split: canSplit && sec === 'bar', loc: true, locChg: locChgAuto.length > 0, locTo: btpGroups.find(g => g.auto)?.id || btpGroups[0]?.id || 'new' };
+  const draw = () => {
+    const plan = planUpload(fileName, p, target, baseName, st0);
+    const S = { cat: { items: plan.cat.map(n => ({ ...n })) }, groups: s2Clean([...X.groups.filter(g => !plan.groups.some(x => x.id === g.id)), ...plan.groups]) };
+    KBTEngine2.compute(S);
+    const touched = S.groups.filter(g => plan.groups.some(x => x.id === g.id));
+    const bad = KBTEngine2.check({ groups: touched });
+    const total = touched.reduce((a, g) => a + g.items.filter(r => g.kind === 'btp' ? r.file?.per != null : r.file?.total != null).length, 0);
+    const main = touched.find(g => g.id === plan.mainId) || touched[0];
+    $('#upOut').innerHTML = `<div class="pad">
+      <div class="kpis" style="margin:0 0 12px"><div class="kpi"><div class="l">Nội dung file</div><div class="v" style="font-size:20px">${KINDN[p.kind]}</div><div class="s">${(p.kind === 'combo' ? p.combos : p.recipes).length} ${p.kind === 'combo' ? 'combo' : p.kind === 'btp' ? 'công thức' : 'món'}${p.cats.length ? ' · ' + p.cats.length + ' danh mục' : ''}</div></div>
+        <div class="kpi"><div class="l">Ghi vào</div><div class="v" style="font-size:18px">${plan.groups.map(g => esc(g.name)).join(', ')}</div><div class="s">${SECN[sec]}${target ? ' · thay nhóm cũ' : ' · nhóm mới'}</div></div>
+        <div class="kpi"><div class="l">Đối chiếu số trong file</div><div class="v" style="color:${bad.length ? 'var(--warn)' : 'var(--good)'}">${total - bad.length}/${total}</div><div class="s">${bad.length ? bad.length + ' mục lệch – xem bên dưới' : 'Cost tính lại khớp file'}</div></div></div>
+      ${target && target.kind !== p.kind ? `<div class="warnbox">Nhóm “${esc(target.name)}” đang là ${KINDN[target.kind]}, file này là ${KINDN[p.kind]}. Kiểm tra lại đã chọn đúng nhóm chưa.</div>` : ''}
+      ${canSplit ? `<label class="uopt"><input type="checkbox" id="osplit" ${st0.split ? 'checked' : ''}><span><b>Tách thành ${p.cats.length} nhóm theo danh mục trong file</b><small>${p.cats.map(esc).join(' · ')}</small></span></label>` : ''}
+      ${cd ? `<h4 style="margin:14px 0 6px">Danh mục NVL trong file (${p.catalog.length} mã)</h4>
+        <div class="uopts">${cur.length ? `<label class="uopt"><input type="radio" name="ocm" value="add" ${st0.cm === 'add' ? 'checked' : ''}><span><b>Chỉ thêm ${cd.add.length} mã mới</b><small>Giữ nguyên giá đang có trong app</small></span></label>` : ''}
+        <label class="uopt"><input type="radio" name="ocm" value="all" ${st0.cm === 'all' ? 'checked' : ''}><span><b>Cập nhật danh mục theo file</b><small>${cur.length ? `${cd.add.length} mã mới · ${cd.chg.length} mã đổi giá / TL / tên` : 'Danh mục ' + SECN[sec].toLowerCase() + ' đang trống – lấy toàn bộ từ file'}</small></span></label>
+        ${cur.length ? `<label class="uopt"><input type="radio" name="ocm" value="none" ${st0.cm === 'none' ? 'checked' : ''}><span><b>Không đụng danh mục</b></span></label>` : ''}</div>${diffTable(cd.chg, cd.by)}` : ''}
+      ${(p.btpLocal || []).length ? `<h4 style="margin:14px 0 6px">Tab BÁN_THÀNH_PHẨM trong file (${p.btpLocal.length} công thức)</h4>
+        ${locNew.length ? `<label class="uopt"><input type="checkbox" id="oloc" ${st0.loc ? 'checked' : ''}><span><b>Thêm ${locNew.length} công thức BTP chưa có trong app</b><small>${locNew.slice(0, 12).map(b => esc(b.code)).join(', ')}${locNew.length > 12 ? '…' : ''}</small></span></label>
+          <div style="margin:4px 0 8px 30px">vào nhóm <select class="etx" id="olocto">${btpGroups.map(g => `<option value="${g.id}" ${st0.locTo === g.id ? 'selected' : ''}>${esc(g.name)}</option>`).join('')}<option value="new" ${st0.locTo === 'new' ? 'selected' : ''}>Nhóm mới “Bán thành phẩm ${SECN[sec].toLowerCase()}”</option></select></div>` : ''}
+        ${locChg.length ? `<label class="uopt"><input type="checkbox" id="olocc" ${st0.locChg ? 'checked' : ''}><span><b>Cập nhật ${locChg.length} công thức BTP khác với bản trong app</b><small>${locChg.slice(0, 10).map(b => esc(b.code) + ' (' + esc(btpOwner[b.code].g.name) + ')').join(', ')}</small></span></label>` : ''}
+        ${!locNew.length && !locChg.length ? `<p class="muted" style="margin:0">Các công thức này đã có ở nhóm BTP trong app và giống nhau – dùng bản trong app.</p>` : ''}` : ''}
+      ${bad.length ? `<h4 style="margin:14px 0 6px">Mục tính lại khác số trong file</h4><div class="tbl"><table><thead><tr><th>Nhóm</th><th>Mã</th><th>Tên</th><th class="n">Trong file</th><th class="n">App tính</th></tr></thead><tbody>${bad.slice(0, 30).map(b => `<tr><td class="muted">${esc(b.g)}</td><td class="code">${esc(b.code)}</td><td>${esc(b.name)}</td><td class="n">${vnd(b.file)}</td><td class="n">${vnd(b.app)}</td></tr>`).join('')}</tbody></table></div><p class="note">${p.kind === 'combo' ? 'Combo dùng cost món đang có trong app (mới hơn số chép trong file combo), nên lệch là bình thường.' : 'Thường do giá trong Danh mục của app khác giá trong file, hoặc công thức BTP trong app khác file. Chọn “Cập nhật danh mục theo file” nếu muốn khớp file.'}</p>` : ''}
+      ${main ? `<h4 style="margin:14px 0 6px">Xem trước: ${esc(main.name)}</h4><div class="tbl"><table><thead><tr><th>Mã</th><th>Tên</th><th>Danh mục</th><th class="n">${main.kind === 'btp' ? 'SL TP' : 'Giá bán'}</th><th class="n">${main.kind === 'btp' ? 'Giá thành/kg' : 'Cost'}</th><th class="n">${main.kind === 'btp' ? 'Giá bán CS' : 'Tỷ lệ'}</th></tr></thead><tbody>${main.items.slice(0, 15).map(r => `<tr><td class="code">${esc(r.code || '')}</td><td>${esc(r.name)}${r.off ? ' <span class="pill mute">Đã bỏ</span>' : ''}</td><td class="muted">${esc(r.cat || '')}</td><td class="n">${main.kind === 'btp' ? q(r.yld) : vnd(r.price)}</td><td class="n">${vnd(main.kind === 'btp' ? r.per : r.total)}</td><td class="n">${main.kind === 'btp' ? vnd(r.sell) : (r.price ? pillFor(r.total / r.price) : '—')}</td></tr>`).join('')}${main.items.length > 15 ? `<tr><td colspan="6" class="muted">… và ${main.items.length - 15} mục nữa</td></tr>` : ''}</tbody></table></div>` : ''}
+      ${p.notes?.rows?.length ? `<p class="muted">Kèm ${p.notes.rows.length} điểm đã xác nhận (xem trong nhóm).</p>` : ''}
+      <div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap"><button class="btn pri" id="upub">Đăng lên app</button><button class="btn" id="ucancel">Chọn file khác</button></div></div>`;
+    document.querySelectorAll('input[name="ocm"]').forEach(r => r.onchange = () => { st0.cm = r.value; draw(); });
+    if ($('#osplit')) $('#osplit').onchange = e => { st0.split = e.target.checked; draw(); };
+    if ($('#oloc')) $('#oloc').onchange = e => { st0.loc = e.target.checked; draw(); };
+    if ($('#olocc')) $('#olocc').onchange = e => { st0.locChg = e.target.checked; draw(); };
+    if ($('#olocto')) $('#olocto').onchange = e => { st0.locTo = e.target.value; draw(); };
+    $('#ucancel').onclick = () => VIEWS.capnhat();
+    $('#upub').onclick = () => publishUpload(sec, plan.groups, cd ? { items: plan.cat, file: st0.cm === 'none' ? (X.cat?.file || null) : fileName, changed: st0.cm !== 'none' || plan.catChanged } : (plan.catChanged ? { items: plan.cat, file: X.cat?.file || null } : null), plan.groups.map(g => g.name).join(', '), fileName, plan.mainId);
+  };
+  draw();
+}
+function planUpload(fileName, p, target, baseName, o) {
+  const U = st.up, sec = U.sec, X = S2[sec], now = new Date().toISOString(), by = ME.name || ME.email;
+  let cat = (X.cat?.items || []).map(n => ({ ...n })), catChanged = false;
+  if (p.catalog) cat = mergeCatalog(cat, p.catalog, o.cm);
+  let seq = 0; const mk = (id, name, items, cats, extra = {}) => ({ id, sec, name, kind: p.kind, file: fileName, at: now, by, created: s2Group(id)?.created || new Date(Date.now() + seq++).toISOString(), items: s2Clean(items), cats, notes: p.notes || null, ...extra });
+  const groups = []; let mainId;
+  const list = p.kind === 'combo' ? p.combos : p.recipes;
+  if (o.split && p.kind === 'dish' && p.cats.length >= 2) {
+    p.cats.forEach(c => { const ex = X.groups.find(g => g.kind === 'dish' && norm(g.name) === norm(c)); const id = ex?.id || newId(); groups.push(mk(id, ex?.name || titleVi(c), list.filter(r => r.cat === c), [c])); });
+    const rest = list.filter(r => !r.cat || !p.cats.includes(r.cat)); if (rest.length) groups[0].items.push(...s2Clean(rest));
+    mainId = groups[0].id;
+  } else { const id = target?.id || newId(); groups.push(mk(id, target?.name || baseName || 'Nhóm mới', list, p.cats)); mainId = id; }
+  // BTP từ tab BÁN_THÀNH_PHẨM
+  const owner = {}; X.groups.filter(g => g.kind === 'btp' && g.id !== target?.id).forEach(g => g.items.forEach(r => { owner[r.code] = g; }));
+  const addNew = o.loc ? (p.btpLocal || []).filter(b => !owner[b.code]) : [];
+  const upd = o.locChg ? (p.btpLocal || []).filter(b => owner[b.code] && !sameRecipe(owner[b.code].items.find(r => r.code === b.code), b)) : [];
+  const touched = {};
+  const getG = id => touched[id] ??= s2Clean(s2Group(id));
+  upd.forEach(b => { const g = getG(owner[b.code].id); const i = g.items.findIndex(r => r.code === b.code); g.items[i] = { ...s2Clean(b), sell: g.items[i].sell ?? null, cat: g.items[i].cat }; g.at = now; g.by = by; });
+  if (addNew.length) {
+    if (o.locTo && o.locTo !== 'new') { const g = getG(o.locTo); g.items.push(...s2Clean(addNew)); g.at = now; g.by = by; }
+    else groups.push({ id: newId(), sec, name: 'Bán thành phẩm ' + SECN[sec].toLowerCase(), kind: 'btp', file: fileName, at: now, by, created: now, items: s2Clean(addNew), cats: [], notes: null, auto: true });
+  }
+  Object.values(touched).forEach(g => groups.push(g));
+  // mã BTP mới chưa có trong danh mục
+  groups.filter(g => g.kind === 'btp').forEach(g => g.items.forEach(r => { if (!cat.some(n => n.code === r.code)) { cat.push({ code: r.code, name: r.name, unit: r.yUnit === 'quả' ? 'quả' : 'kg', tl: 1, price: r.per ?? r.file?.per ?? 0, grp: 'BÁN THÀNH PHẨM', src: 'Tự tính' }); catChanged = true; } }));
+  return { groups, cat, catChanged, mainId };
+}
+const titleVi = s => { s = String(s || '').trim(); return s === s.toUpperCase() ? s.charAt(0) + s.slice(1).toLowerCase() : s; };
+async function publishUpload(sec, groups, cat, label, fileName, mainId) {
+  const b = $('#upub'); if (b) { b.disabled = true; b.textContent = 'Đang đăng…'; }
+  try {
+    const now = new Date().toISOString(), by = ME.name || ME.email;
+    for (const g of groups) await API.publishExtra('s2g:' + g.id, s2Clean(g), { sec, kind: g.kind, name: g.name, file: g.file, by });
+    if (cat && (cat.changed !== false)) await API.publishExtra('s2cat:' + sec, { items: s2Clean(cat.items), file: cat.file || fileName, at: now, by }, { sec, kind: 'catalog', by });
+    try { await API.appendLog([{ at: now, by, area: sec, code: '', name: label, field: 'upload', old: null, new: fileName }]); } catch (e) { }
+    st.up = { sec, target: mainId || (groups.length ? null : 'cat'), name: '' };
+    await loadData(true);
+    toast(`Đã đăng ${fileName} vào ${SECN[sec]} · ${label}.`);
+    if (mainId && MODS.find(m => m.id === 'g-' + mainId)) go('g-' + mainId); else if (!groups.length) go(`n-${sec}-cat`);
+  } catch (e) { if (b) { b.disabled = false; b.textContent = 'Đăng lên app'; } toast('Không đăng được: ' + e.message); }
+}
+
+/* ---------- xuất Excel ---------- */
+async function exportGroup(g) {
+  await loadScript('vendor/xlsx.full.min.js');
+  const wb = KBTExport2.toWorkbook(XLSX, KBTExport2.groupBook(g, S2[g.sec].cat?.items || [], g.sec));
+  XLSX.writeFile(wb, `${SECN[g.sec]} - ${g.name}.xlsx`);
+}
+async function exportCatalog(sec) {
+  await loadScript('vendor/xlsx.full.min.js');
+  XLSX.writeFile(KBTExport2.toWorkbook(XLSX, KBTExport2.catalogBook(S2[sec].cat?.items || [], sec)), `${SECN[sec]} - Danh muc NVL.xlsx`);
+}
+async function exportSection(sec) {
+  await loadScript('vendor/xlsx.full.min.js'); await loadScript('vendor/jszip.min.js');
+  const z = new JSZip(), cat = S2[sec].cat?.items || [];
+  const put = (name, sheets) => z.file(name, XLSX.write(KBTExport2.toWorkbook(XLSX, sheets), { type: 'array', bookType: 'xlsx' }));
+  put(`Danh muc NVL.xlsx`, KBTExport2.catalogBook(cat, sec));
+  S2[sec].groups.forEach(g => put(`${g.name.replace(/[\\/:*?"<>|]/g, '-')}.xlsx`, KBTExport2.groupBook(g, cat, sec)));
+  const blob = await z.generateAsync({ type: 'blob' });
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `KBT ${SECN[sec]} ${new Date().toISOString().slice(0, 10)}.zip`; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+}

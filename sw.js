@@ -1,7 +1,7 @@
 /* Service worker: lưu khung app để mở nhanh & mở được khi mất mạng.
    Dữ liệu cost KHÔNG đi qua đây (chỉ lấy từ máy chủ sau khi đăng nhập). */
-const CACHE = 'kbt-cost-v1.5.0';
-const SHELL = ['./', 'index.html', 'app.css?v=1.5.0', 'app.js?v=1.5.0', 'parser.js?v=1.5.0', 'config.js?v=1.5.0', 'vendor/supabase.js', 'manifest.webmanifest', 'icons/icon-192.png', 'icons/logo-login.png'];
+const CACHE = 'kbt-cost-v1.6.0';
+const SHELL = ['./', 'index.html', 'app.css?v=1.6.0', 'app.js?v=1.6.0', 'parser.js?v=1.6.0', 'parser2.js?v=1.6.0', 'engine2.js?v=1.6.0', 'export2.js?v=1.6.0', 'config.js?v=1.6.0', 'vendor/supabase.js', 'manifest.webmanifest', 'icons/icon-192.png', 'icons/logo-login.png'];
 self.addEventListener('install', e => { e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL)).then(() => self.skipWaiting())); });
 self.addEventListener('activate', e => { e.waitUntil(caches.keys().then(ks => Promise.all(ks.filter(k => k !== CACHE).map(k => caches.delete(k)))).then(() => self.clients.claim())); });
 self.addEventListener('fetch', e => {
